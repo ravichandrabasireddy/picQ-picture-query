@@ -65,3 +65,221 @@ Be as thorough and detailed as possible in your analysis. If you're unsure about
 After completing your analysis, provide a brief summary of the most notable or interesting aspects of the image in a <summary> tag.
 
 Begin your analysis now."""
+
+
+def get_query_extraction_prompt(query: str) -> str:
+    """
+    Get the prompt for query extraction using Gemini AI.
+    
+    Returns:
+        The formatted prompt string
+    """
+    return f"""You are tasked with extracting key details from a given query. Your goal is to analyze the query and identify important elements such as location, date, colors, category, emotion, main subject, people, animals, plants, objects, style, lighting, composition, and any other relevant details.
+
+Here are the specific details you should try to extract:
+- Location
+- Date
+- Colors
+- Category
+- Emotion
+- Main subject
+- People
+- Animals
+- Plants
+- Objects
+- Style
+- Lighting
+- Composition
+
+Follow these steps to complete the task:
+
+1. Carefully read and analyze the following query:
+<query>
+{query}
+</query>
+
+2. Extract the key details listed above from the query. If a particular detail is not present or cannot be inferred from the query, omit it from your output.
+
+3. Format your output using XML tags. Each extracted detail should be enclosed in its own tag, named after the detail. For example:
+<location>New York City</location>
+<date>2023-06-15</date>
+
+4. If you identify any additional relevant details not explicitly mentioned in the list above, include them in your output using appropriate XML tags.
+
+5. Ensure that your entire output is enclosed within a root <extracted_details> tag.
+
+6. Be as specific and detailed as possible in your extractions, but avoid making assumptions that are not supported by the information given in the query.
+
+7. If the query is ambiguous or lacks sufficient information for certain details, you may use tags like <possible_location> or <implied_emotion> to indicate less certain extractions.
+
+Here's an example of how your output should be structured:
+
+<extracted_details>
+<location>Central Park, New York</location>
+<date>2023-06-15</date>
+<colors>green, blue</colors>
+<category>nature photography</category>
+<emotion>serene</emotion>
+<main_subject>landscape</main_subject>
+<objects>trees, lake</objects>
+<lighting>natural, sunny</lighting>
+<composition>wide-angle shot</composition>
+<additional_detail>early morning</additional_detail>
+</extracted_details>
+
+Remember to adjust your output based on the actual content of the query, including only the details that are relevant and can be extracted from the given information."""
+
+def get_format_query_prompt(original_query: str, extracted_details: str, image_analysis: str = None) -> str:
+    """
+    Get the prompt for formatting a query using Gemini AI.
+    
+    Returns:
+        The formatted prompt string
+    """
+    return f"""You are an AI assistant specializing in formatting search queries for finding similar images based on given details and image analysis. Your task is to create a structured query that captures the essential visual and conceptual elements of the desired image.
+
+You will be provided with the following information:
+
+If an image was uploaded, you will have the image analysis:
+<image_analysis>
+{image_analysis}
+</image_analysis>
+
+<original_query>
+{original_query}
+</original_query>
+
+<extracted_details>
+{extracted_details}
+</extracted_details>
+
+Your goal is to analyze this information and create a formatted search query that combines the most relevant details. Follow these steps:
+
+1. Analyze the provided information, focusing on key visual and conceptual elements.
+2. Identify the most important aspects that define the image or desired image, such as:
+   - Main subject
+   - Colors
+   - Composition
+   - Lighting
+   - Emotion or mood
+   - Objects or elements present
+   - Style or category
+3. Combine these elements into a concise yet descriptive search query.
+4. Ensure that the query captures both the visual and conceptual aspects of the image or desired image.
+5. Use natural language and descriptive terms that would be effective for image search.
+
+Before formulating your final response, wrap your analysis and decision-making process inside <query_formulation> tags. Consider the following:
+- List and categorize key elements from the image analysis and extracted details.
+- Consider the importance of each element for the search query.
+- Brainstorm potential query formulations.
+- What are the most distinctive features of the desired image?
+- How can you balance visual descriptions with conceptual themes?
+- What specific details will help narrow down the search results?
+
+After your analysis, provide your response in JSON format with two main keys: "formatted_query" and "explanation". The "formatted_query" should be a string containing your optimized search query, and the "explanation" should be a brief justification of your choices.
+
+Example output structure (do not use this content, only the structure):
+
+```json
+{
+  "formatted_query": "Your formatted query here",
+  "explanation": "Your explanation here"
+}
+```
+
+Remember to focus on the most distinctive and important aspects of the image or desired image in your formatted query. Your goal is to create a query that would effectively find similar images in terms of both visual elements and conceptual themes."""
+
+
+def get_reasoning_prompt(query: str, extracted_details: str, formatted_query: str, similar_image_analysis: str,  image_analysis: str = None) -> str:
+    """
+    Get the prompt for reasoning using Gemini AI.
+    
+    Returns:
+        The formatted prompt string
+    """
+    return f"""You are an AI assistant specialized in image analysis and comparison. Your task is to explain why a similar image matches a given query and/or image. You will be provided with several pieces of information to analyze and compare.
+
+First, review the following input information:
+
+1. Analysis of a similar image found based on the query:
+<similar_image_analysis>
+{similar_image_analysis}
+</similar_image_analysis>
+
+2. Original query:
+<original_query>
+{query}
+</original_query>
+
+3. Image analysis (if an image was provided with the query):
+<query_image_analysis>
+{image_analysis}
+</query_image_analysis>
+
+4. Extracted details from the query:
+<query_extracted_details>
+{extracted_details}
+</query_extracted_details>
+
+5. Formatted query:
+<query_formatted>
+{formatted_query}
+</query_formatted>
+
+Your task is to compare the information from the original query, image analysis (if provided), extracted details, and formatted query with the similar image analysis. Identify the key similarities and matches between them, and provide reasoning for why the similar image is a close match.
+
+Follow these steps:
+
+1. Analyze all the provided information carefully.
+2. Compare the query-related information with the similar image analysis.
+3. Identify the most significant similarities and relevant details.
+4. Formulate clear and concise reasons explaining why the similar image matches the query.
+5. Present your reasoning in bullet points.
+6. Format your output as a JSON object containing an array of strings, where each string is one of your bullet points.
+
+Before providing your final output, wrap your analysis process inside <analysis> tags:
+
+<analysis>
+1. Visual Elements:
+   - List key visual elements in the query/query image
+   - List key visual elements in the similar image
+   - Note similarities and differences
+
+2. Subject Matter:
+   - Identify the main subject(s) in the query/query image
+   - Identify the main subject(s) in the similar image
+   - Compare and contrast the subjects
+
+3. Emotions and Mood:
+   - Describe the emotions/mood conveyed in the query/query image
+   - Describe the emotions/mood conveyed in the similar image
+   - Analyze how well they align
+
+4. Composition and Style:
+   - Note composition aspects of the query/query image
+   - Note composition aspects of the similar image
+   - Compare similarities in style and arrangement
+
+5. Key Similarities:
+   - List the most significant matches between query and similar image
+   - Include both obvious and subtle similarities
+
+6. Notable Differences:
+   - Mention any important differences, if applicable
+   - Explain why these differences don't outweigh the similarities
+
+[Use this structure to thoroughly analyze and compare the query and similar image information. Consider all relevant details to prepare your reasoning.]
+</analysis>
+
+After your analysis, provide your final output in the following JSON format:
+
+{
+  "reasons": [
+    "First reason explaining the match",
+    "Second reason explaining the match",
+    "Third reason explaining the match",
+    ...
+  ]
+}
+
+Ensure that each reason in the array is a clear and concise explanation of why a specific aspect of the similar image matches the original query or image. Focus on the most significant similarities and relevant details."""

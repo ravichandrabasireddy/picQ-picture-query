@@ -1,11 +1,9 @@
-
 import os
 from google import genai
 from google.genai import types
 
 from ...core.prompts import get_photo_analysis_prompt
-
-
+from ...core.config import get_settings
 
 async def generate_analysis(image_path: str, date: str, location: str, client=None):
     """Generate image analysis using Gemini API.
@@ -20,8 +18,9 @@ async def generate_analysis(image_path: str, date: str, location: str, client=No
         Stream of content chunks from the Gemini API
     """
     if client is None:
+        settings = get_settings()
         client = genai.Client(
-            api_key=os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY"),
+            api_key=settings.GOOGLE_GENERATIVE_AI_API_KEY,
         )
 
     file = client.files.upload(file=image_path)
