@@ -8,8 +8,10 @@ from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS, GPSTAGS
 from ...core.database import get_supabase_client
 from ...core.logging_config import setup_logging
+from ...core.config import get_settings
 
 logger = setup_logging()
+settings = get_settings()
 
 # Valid image MIME types
 ALLOWED_IMAGE_TYPES = [
@@ -22,9 +24,9 @@ ALLOWED_IMAGE_TYPES = [
     "image/heic"
 ]
 
-# Get geocoding API details from environment
-GEOCODING_URI_BASE = os.environ.get("GEOCODING_URI_BASE", "https://maps.googleapis.com/maps/api/geocode/json")
-GEOCODING_API_KEY = os.environ.get("GEOCODING_API_KEY")
+# Get geocoding API details from settings
+GEOCODING_URI_BASE = settings.GEOCODING_URI_BASE
+GEOCODING_API_KEY = settings.GEOCODING_API_KEY
 
 async def get_location_details_from_coordinates(lat: float, lng: float) -> Dict[str, Any]:
     """
@@ -78,13 +80,15 @@ async def get_location_details_from_coordinates(lat: float, lng: float) -> Dict[
         
     return location_details
 
+
+
 async def extract_image_metadata(image: Image.Image) -> Dict[str, Any]:
     """
     Extract metadata from image including location and timestamp
-    
+
     Args:
         image: PIL Image object
-        
+
     Returns:
         dict: Extracted metadata
     """
@@ -98,62 +102,74 @@ async def extract_image_metadata(image: Image.Image) -> Dict[str, Any]:
         "formatted_address": None,
         "location_types": None
     }
-    
+
     try:
         if hasattr(image, '_getexif') and image._getexif():
             exif = {
-                TAGS[k]: v
+                TAGS.get(k, k): v
                 for k, v in image._getexif().items()
                 if k in TAGS
             }
-            
+
             # Extract date/time
             if "DateTimeOriginal" in exif:
                 metadata["datetime"] = exif["DateTimeOriginal"]
             elif "DateTime" in exif:
                 metadata["datetime"] = exif["DateTime"]
-                
+
             # Extract device info
             if "Make" in exif and "Model" in exif:
                 metadata["device"] = f"{exif['Make']} {exif['Model']}"
-                
+
             # Extract GPS data if available
             if "GPSInfo" in exif:
                 gps_info = {}
                 for key, val in exif["GPSInfo"].items():
                     if key in GPSTAGS:
                         gps_info[GPSTAGS[key]] = val
-                
+
                 if "GPSLatitude" in gps_info and "GPSLongitude" in gps_info:
-                    # Convert coordinates from degrees/minutes/seconds format
+                    logger.info(f"Extracting GPS coordinates from image metadata {gps_info}")
+
+                    def convert_to_degrees(value):
+                        def to_float(x):
+                            return float(x) if not isinstance(x, tuple) else x[0] / x[1]
+                        d = to_float(value[0])
+                        m = to_float(value[1])
+                        s = to_float(value[2])
+                        return d + (m / 60.0) + (s / 3600.0)
+
                     def convert_to_decimal(value, ref):
-                        decimal = value[0] + value[1]/60 + value[2]/3600
+                        decimal = convert_to_degrees(value)
                         if ref in ['S', 'W']:
                             decimal = -decimal
                         return decimal
-                    
-                    lat = convert_to_decimal(gps_info["GPSLatitude"], 
-                                           gps_info.get("GPSLatitudeRef", "N"))
-                    lng = convert_to_decimal(gps_info["GPSLongitude"], 
-                                           gps_info.get("GPSLongitudeRef", "E"))
-                    
+
+                    lat = convert_to_decimal(
+                        gps_info["GPSLatitude"],
+                        gps_info.get("GPSLatitudeRef", "N")
+                    )
+                    lng = convert_to_decimal(
+                        gps_info["GPSLongitude"],
+                        gps_info.get("GPSLongitudeRef", "E")
+                    )
+
                     metadata["gps_latitude"] = lat
                     metadata["gps_longitude"] = lng
                     metadata["location"] = f"{lat}, {lng}"
-                    
+
                     # Get detailed location information if coordinates are available
                     if lat and lng:
                         location_details = await get_location_details_from_coordinates(lat, lng)
                         metadata.update(location_details)
-                        
+
     except Exception as e:
         logger.error(f"Error extracting image metadata: {str(e)}")
-        
-    return metadata
 
+    return metadata
 async def upload_image_to_storage(
     file: UploadFile,
-    bucket_name: str = "picq-photos"
+    bucket_name: str = "picq-photo"
 ) -> dict:
     """
     Upload an image from form data to Supabase storage and return the URL.
@@ -199,7 +215,8 @@ async def upload_image_to_storage(
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
         
         # Upload file to Supabase storage
-        supabase.storage.from_(bucket_name).upload(unique_filename, contents)
+        supabase.storage.from_(bucket_name).upload(unique_filename, contents, {
+            'content-type': f'image/{file_ext[1:]}'})
         
         # Get public URL for the uploaded file
         file_url = supabase.storage.from_(bucket_name).get_public_url(unique_filename)

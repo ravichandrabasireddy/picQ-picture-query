@@ -8,32 +8,50 @@ from google.genai import types
 from ...core.utils import download_image
 from ...core.database import get_supabase_client
 from ...core.logging_config import setup_logging
+from ...core.config import get_settings
 from .get_photo_url import upload_image_to_storage
 from ..agents.photo_feature_extract_agent import generate_analysis
 
+# Initialize settings and logger
+settings = get_settings()
 logger = setup_logging()
 
-async def generate_embeddings(text_content: str) -> list:
+async def generate_embeddings(text_content: str, client=None) -> list:
     """
     Generate vector embeddings from text content using Gemini API
     
     Args:
         text_content: The text to convert to vector embeddings
+        client: Optional existing Google Generative AI client
         
     Returns:
         List of embedding values
     """
     try:
-        client = genai.Client(api_key=os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY"))
+        if not client:
+            # Use settings instead of environment variables directly
+            client = genai.Client(api_key=settings.GOOGLE_GENERATIVE_AI_API_KEY)
+            logger.info("Created new Gemini client for embeddings")
+        
+        # Use embedding model from settings if available, otherwise use default
+        embedding_model = getattr(settings, "GEMINI_EMBEDDING_MODEL", "gemini-embedding-exp-03-07")
         
         result = client.models.embed_content(
-            model="gemini-embedding-exp-03-07",
+            model=embedding_model,
             contents=text_content,
-            config=types.EmbedContentConfig(task_type="SEMANTIC_SIMILARITY")
+            
+            config=types.EmbedContentConfig(task_type="SEMANTIC_SIMILARITY", output_dimensionality=1536)
         )
         
-        # Return the embedding values
-        return result.embeddings
+        # Extract the numerical values from the ContentEmbedding object
+        # The values are in result.embeddings[0].values for the Gemini API
+        if result and result.embeddings:
+            embedding_values = result.embeddings[0].values
+            logger.info(f"Generated embeddings with {len(embedding_values)} dimensions")
+            return embedding_values
+        else:
+            raise ValueError("No embeddings returned from API")
+            
     except Exception as e:
         logger.error(f"Error generating embeddings: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate embeddings: {str(e)}")
@@ -102,7 +120,7 @@ async def store_photo_in_db(
         logger.error(f"Error storing photo in database: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store photo: {str(e)}")
 
-async def ingest_photo(file: UploadFile) -> Dict[str, Any]:
+async def ingest_photo(file: UploadFile, genai_client=None) -> Dict[str, Any]:
     """
     Process an uploaded photo:
     1. Upload to storage and get URL
@@ -113,6 +131,7 @@ async def ingest_photo(file: UploadFile) -> Dict[str, Any]:
     
     Args:
         file: The image file from form data
+        genai_client: Optional existing Google Generative AI client
         
     Returns:
         dict: Information about the processed photo including its ID
@@ -123,6 +142,7 @@ async def ingest_photo(file: UploadFile) -> Dict[str, Any]:
         photo_url = upload_result["url"]
         metadata = upload_result["metadata"]
         
+        
         # 2. Download the image for analysis
         image_path = await download_image(photo_url)
         
@@ -130,14 +150,20 @@ async def ingest_photo(file: UploadFile) -> Dict[str, Any]:
         location = metadata.get("formatted_address", "")
         date = metadata.get("datetime", "")
         
-        # 4. Generate photo analysis
-        analysis_stream = await generate_analysis(image_path, date, location)
+        # 4. Generate photo analysis - pass the application-wide client
+        analysis_stream = await generate_analysis(image_path, date, location, client=genai_client)
         photo_analysis = ""
-        async for chunk in analysis_stream:
-            photo_analysis += chunk.text
         
-        # 5. Create vector embeddings
-        embeddings = await generate_embeddings(photo_analysis)
+        # Use regular for loop instead of async for since generate_content_stream returns a regular generator
+        for chunk in analysis_stream:
+            if chunk.text is not None:  # Add this check to handle None values
+                photo_analysis += chunk.text
+            # Optionally log when chunk.text is None
+            else:
+                logger.debug("Received empty chunk from Gemini API")
+        
+        # 5. Create vector embeddings - use the same function that accepts client parameter  
+        embeddings = await generate_embeddings(photo_analysis, client=genai_client)
         
         # 6. Store in database
         photo_id = await store_photo_in_db(photo_url, metadata, photo_analysis, embeddings)

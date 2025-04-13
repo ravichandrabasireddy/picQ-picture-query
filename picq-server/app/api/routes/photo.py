@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status, Request
 from typing import Dict, Any, List
 
 from ..photo_engine.ingest_photo import ingest_photo
@@ -25,6 +25,7 @@ ALLOWED_IMAGE_TYPES: List[str] = [
 @router.post("/analyze", status_code=status.HTTP_200_OK, response_model=Dict[str, Any])
 async def analyze_photo(
     file: UploadFile = File(...),
+    request: Request = None
 ) -> Dict[str, Any]:
     """
     Upload a photo for analysis and storage
@@ -48,9 +49,14 @@ async def analyze_photo(
             detail=f"Unsupported file format. Please upload a photo in one of these formats: {', '.join([t.split('/')[1].upper() for t in ALLOWED_IMAGE_TYPES])}"
         )
     
-    # Process the uploaded photo
+    # Get the application-wide Gemini client
+    genai_client = request.app.state.genai_client
+    if not genai_client:
+        logger.warning("Application Gemini client not available, will create one on demand")
+    
+    # Process the uploaded photo with the existing client
     try:
-        result = await ingest_photo(file)
+        result = await ingest_photo(file, genai_client)
         return result
     except Exception as e:
         logger.error(f"Error processing photo: {str(e)}")
