@@ -321,3 +321,55 @@ Here is the question about the image:
 </question>
 
 Please provide your expert analysis and answer to this question based on the image details provided."""
+
+def get_intresting_details_prompt(image_analysis: str) -> str:
+    """
+    Get the prompt for extracting interesting details from image analysis using Gemini AI.
+    
+    Returns:
+        The formatted prompt string
+    """
+    return f"""You will be given an XML-formatted image analysis. Your task is to find and highlight interesting details about the image based on this analysis. Here's how to proceed:
+
+1. First, you will receive the image analysis in the following format:
+
+<image_analysis>
+{image_analysis}
+</image_analysis>
+
+2. Your goal is to carefully examine each section of the analysis and identify the most intriguing or noteworthy aspects of the image.
+
+3. For each section of the XML, consider the following:
+
+   - Description: Look for unique or vivid details about the overall scene.
+   - Colors: Note any striking or unusual color combinations.
+   - Text: If present, consider its relevance or any interesting messages.
+   - Category: Think about what makes this image stand out in its category.
+   - Emotion: Reflect on the emotional impact and what contributes to it.
+   - Main subject: Consider what makes the main subject interesting or important.
+   - People, Animals, Plants: Look for unusual characteristics or interactions.
+   - Objects: Identify any objects that seem out of place or particularly significant.
+   - Composition: Note any striking compositional elements.
+   - Lighting: Consider how lighting contributes to the image's mood or focus.
+   - Style: Reflect on what makes the style unique or impactful.
+   - Metadata context: Consider how this adds to the image's story or significance.
+   - Summary: Use this to guide your overall interpretation.
+
+4. As you analyze each section, make notes in a <scratchpad> about potential interesting details. Consider how different elements interact or contribute to the overall impact of the image.
+
+5. After your analysis, synthesize your findings to identify the most interesting aspects of the image. Consider unexpected combinations, contrasts, or elements that tell a compelling story.
+
+6. Present your findings in the  JSON format:
+
+<interesting_details>
+1. [First interesting detail]
+2. [Second interesting detail]
+3. [Third interesting detail]
+...
+</interesting_details>
+
+<explanation>
+Provide a brief explanation of why these details are particularly interesting or noteworthy, connecting different aspects of the image analysis where relevant.
+</explanation>
+
+Remember to focus on the most intriguing elements that make this image unique or captivating based on the provided analysis."""

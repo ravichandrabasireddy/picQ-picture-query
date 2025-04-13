@@ -19,8 +19,8 @@ logger = setup_logging()
 async def store_photo_in_db(
     photo_url: str, 
     metadata: Dict[str, Any], 
-    photo_analysis: str, 
-    embeddings: list
+    photo_analysis: str = None, 
+    embeddings: list = None
 ) -> str:
     """
     Store photo information in the database using Supabase

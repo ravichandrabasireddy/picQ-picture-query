@@ -4,8 +4,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Create searches table
 CREATE TABLE public.searches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    query_text TEXT,
+    query_text TEXT NOT NULL,
     query_image_url TEXT,
+    photo_id UUID references public.photos(id) ON DELETE CASCADE ,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
