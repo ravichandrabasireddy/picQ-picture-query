@@ -180,12 +180,11 @@ After your analysis, provide your response in JSON format with two main keys: "f
 
 Example output structure (do not use this content, only the structure):
 
-```json
-{
+<jsonoutput>
+
   "formatted_query": "Your formatted query here",
   "explanation": "Your explanation here"
-}
-```
+</jsonoutput>
 
 Remember to focus on the most distinctive and important aspects of the image or desired image in your formatted query. Your goal is to create a query that would effectively find similar images in terms of both visual elements and conceptual themes."""
 
@@ -273,13 +272,52 @@ Before providing your final output, wrap your analysis process inside <analysis>
 
 After your analysis, provide your final output in the following JSON format:
 
-{
+<jsonoutput>
   "reasons": [
     "First reason explaining the match",
     "Second reason explaining the match",
     "Third reason explaining the match",
     ...
   ]
-}
+</jsonoutput>
 
 Ensure that each reason in the array is a clear and concise explanation of why a specific aspect of the similar image matches the original query or image. Focus on the most significant similarities and relevant details."""
+
+def get_image_answering_prompt(query: str, image_analysis: str) -> str:
+    """
+    Get the prompt for image answering using Gemini AI.
+    
+    Returns:
+        The formatted prompt string
+    """
+    return f"""You are an expert in analyzing and answering questions about images based on extracted details. You will be provided with an image analysis and a question about the image. Your task is to answer the question accurately and comprehensively using the information given in the image analysis.
+
+Here is the extracted information from the image:
+
+<image_analysis>
+{image_analysis}
+</image_analysis>
+
+When answering questions about this image, follow these guidelines:
+
+1. Carefully read and consider all the information provided in the image analysis.
+2. Focus on the specific aspects of the image that are relevant to the question.
+3. Use details from multiple categories in the analysis when appropriate to provide a comprehensive answer.
+4. If the question asks about something not explicitly mentioned in the analysis, use the available information to make reasonable inferences, but clearly state when you are making an inference.
+5. If you cannot answer the question based on the provided information, state this clearly and explain why.
+6. Provide explanations and justifications for your answers, referencing specific details from the image analysis.
+
+Format your response as follows:
+1. Begin with a brief restatement of the question.
+2. Provide your answer and explanation, using details from the image analysis to support your response.
+3. If relevant, mention any limitations or uncertainties in your answer based on the available information.
+
+Write your entire response inside <answer> tags.
+
+Here is the question about the image:
+
+<question>
+{query}
+</question>
+
+Please provide your expert analysis and answer to this question based on the image details provided."""

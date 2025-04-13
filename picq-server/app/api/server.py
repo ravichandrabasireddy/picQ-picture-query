@@ -10,7 +10,7 @@ from ..api.exception_handlers import add_exception_handlers
 from ..api.openapi import setup_openapi
 from ..api.routes.health import router as health_router  # Import the router object directly
 from ..api.routes.photo import router as photo_router  # Import the router object directly
-
+from ..api.routes.query import router as query_router  # Import the router object directly
 # Initialize core components
 settings = get_settings()
 logger = setup_logging()
@@ -35,6 +35,7 @@ setup_openapi(app)
 app.include_router(health_router)  # Use the router object, not the module
 
 app.include_router(photo_router)
+app.include_router(query_router)
 
 # Startup and shutdown events
 @app.on_event("startup")
