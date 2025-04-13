@@ -183,7 +183,8 @@ async def get_search_results(
                         latitude,
                         longitude,
                         taken_at,
-                        photo_analysis
+                        photo_analysis,
+                        formatted_address
                     )
                 ''') \
                 .eq('search_result_id', search_result_id) \
@@ -196,11 +197,7 @@ async def get_search_results(
                     photo_data = match.get('photos', {})
                     
                     # Format address from latitude/longitude if available
-                    formatted_address = None
-                    if photo_data and photo_data.get('latitude') and photo_data.get('longitude'):
-                        latitude = photo_data.get('latitude')
-                        longitude = photo_data.get('longitude')
-                        formatted_address = f"Location: {latitude}, {longitude}"  
+    
                         # Note: In a real app, you might want to use a geocoding service 
                         # to convert coordinates to actual addresses
                     
@@ -208,7 +205,7 @@ async def get_search_results(
                         "id": match['id'],
                         "photo_id": match['photo_id'],
                         "photo_url": photo_data.get('photo_url') if photo_data else None,
-                        "formatted_address": formatted_address,
+                        "formatted_address": photo_data.get('formatted_address'),
                         "taken_at": photo_data.get('taken_at'),
                         "photo_analysis": photo_data.get('photo_analysis'),
                         "is_best_match": match['is_best_match'],

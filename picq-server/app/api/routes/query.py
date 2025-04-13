@@ -54,7 +54,7 @@ async def search_endpoint(request: SearchRequest):
 
 
 
-@router.post("/chat/{match_id}")
+@router.post("/chat/{match_id}" , tags=["search"])
 async def chat_with_photo(
     match_id: str = Path(..., description="The ID of the match to chat about"),
     question: str = Body(..., embed=True, description="The user's question about the photo")
