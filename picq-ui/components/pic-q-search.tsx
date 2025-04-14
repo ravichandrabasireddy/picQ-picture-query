@@ -151,20 +151,7 @@ export default function PicQSearch() {
         router.push(`/search/${data.search_id}`)
 
         // Add to recent searches
-        const newSearch: RecentSearch = {
-          id: data.search_id,
-          query: searchText,
-          imageUrl: data.query_image_url || "/placeholder.svg?height=200&width=300",
-          timestamp: Date.now(),
-        }
-
-        try {
-          import("@/lib/recent-searches").then(({ addRecentSearch }) => {
-            addRecentSearch(newSearch)
-          })
-        } catch (error) {
-          console.error("Failed to add recent search:", error)
-        }
+        
       } else {
         throw new Error("API response did not include a valid search_id")
       }
@@ -463,7 +450,7 @@ export default function PicQSearch() {
                       >
                       <div className="relative overflow-hidden rounded-lg aspect-[4/3]">
                         <img
-                          src={item.topMatchImageUrl || item.imageUrl || "/placeholder.svg?height=200&width=300"}
+                          src={item.topMatchImageUrl || "/placeholder.svg?height=200&width=300"}
                           alt={item.query}
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />

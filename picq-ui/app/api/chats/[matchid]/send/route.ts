@@ -33,8 +33,8 @@ export async function POST(
       )
     }
 
-    // Make a request to the external API
-    const response = await fetch(`http://localhost:8000/chat/${matchid}`, {
+    // Make a request to the external API using environment variables
+    const response = await fetch(`${process.env.PICQ_BACKEND_URI}${process.env.PICQ_PICTURE_CHAT}${matchid}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

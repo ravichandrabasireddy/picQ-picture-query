@@ -233,9 +233,10 @@ export default function SearchResultsPage({ params }: { params: { id: string } }
               const searchDataForRecent = {
                 id: searchId,
                 query: data.query_text,
-                imageUrl: data.matches[0].photo_url || "/placeholder.svg?height=200&width=300",
+                topMatchImageUrl: data.matches[0].photo_url || "/placeholder.svg?height=200&width=300",
                 timestamp: Date.now(),
               }
+              console.log("Adding recent search 4:", searchDataForRecent)
               addRecentSearch(searchDataForRecent)
             } catch (error) {
               console.error("Failed to add recent search:", error)
@@ -488,11 +489,11 @@ export default function SearchResultsPage({ params }: { params: { id: string } }
           const searchDataForRecent = {
             id: searchId,
             query: data.query_text,
-            imageUrl: data.query_image_url || "/placeholder.svg?height=200&width=300",
             resultUrl: window.location.href, // Store the current URL
             topMatchImageUrl: bestMatch?.photo_url || null, // Store the top match image URL
             timestamp: Date.now(),
           }
+          console.log("Adding recent search 2:", searchDataForRecent)
           addRecentSearch(searchDataForRecent)
         } catch (error) {
           console.error("Failed to add recent search:", error)

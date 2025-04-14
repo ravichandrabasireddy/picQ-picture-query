@@ -4,9 +4,8 @@ export async function POST(request: NextRequest) {
   try {
     // Get the form data from the request
     const formData = await request.formData()
-
-    // Forward the request to the external API
-    const response = await fetch("http://localhost:8000/db/insert/searches", {
+    // Forward the request to the external API using environment variables
+    const response = await fetch(`${process.env.PICQ_BACKEND_URI}${process.env.PICQ_SEARCH_INSERT}`, {
       method: "POST",
       body: formData,
     })

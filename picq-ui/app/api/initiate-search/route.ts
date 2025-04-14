@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
       try {
         console.log(`Initiating search with ID: ${searchId}, query: ${query}`)
 
-        // Make a request to the external API
-        const response = await fetch("http://localhost:8000/search", {
+        // Make a request to the external API using environment variables
+        const response = await fetch(`${process.env.PICQ_BACKEND_URI}${process.env.PICQ_IMAGE_SEARCH}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

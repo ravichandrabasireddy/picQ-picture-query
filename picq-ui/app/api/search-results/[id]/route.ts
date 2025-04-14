@@ -5,8 +5,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     // Await the params object before accessing its properties
     const searchId = (await params).id
 
-    // Make a GET request to the external API
-    const response = await fetch(`http://localhost:8000/db/search_results/${searchId}`, {
+    // Make a GET request to the external API using environment variables
+    const response = await fetch(`${process.env.PICQ_BACKEND_URI}${process.env.PICQ_SEARCH_RESULTS}${searchId}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
