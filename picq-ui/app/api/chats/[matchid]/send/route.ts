@@ -2,12 +2,11 @@ import type { NextRequest } from "next/server"
 
 export async function POST(
   request: NextRequest,
-  context: { params: { matchid: string } }
+  { params }: { params: Promise<{ matchid: string }> }
 ) {
   try {
     // Get the match ID from the URL parameters - with await
-    const { matchid } = await context.params
-    console.log("Match ID:", matchid)
+    const { matchid } = await params;
     
     if (!matchid) {
       return new Response(

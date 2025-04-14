@@ -25,6 +25,10 @@ import { addRecentSearch } from "@/lib/recent-searches"
 import { SearchProgress, type SearchStep } from "@/components/search-progress"
 import { SSEClient } from "@/lib/sse-client"
 import { formatDate } from "@/lib/utils"
+
+import { useParams } from 'next/navigation'
+
+
 type SearchResult = {
   id: string
   photo_id: string
@@ -73,14 +77,10 @@ function formatReasonIntoPoints(reasonText: string): string[] {
   })
 }
 
-export default function SearchResultsPage({ params }: { params: { id: string } }) {
+export default function SearchResultsPage() {
   // Unwrap the params Promise to get the actual params object
-
-  // @ts-ignore
-  const unwrappedParams = use(params)
-  // @ts-ignore
-  const searchId = unwrappedParams.id
-
+  const params = useParams<{ id: string}>()
+  const searchId = params.id
   const router = useRouter()
   const { toast } = useToast()
   const [searchData, setSearchData] = useState<SearchData | null>(null)

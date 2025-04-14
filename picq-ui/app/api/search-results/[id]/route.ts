@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) {
   try {
     // Await the params object before accessing its properties
     const searchId = (await params).id

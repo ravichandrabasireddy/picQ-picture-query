@@ -2,11 +2,11 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function GET(
   request: NextRequest,
-  context: { params: { matchid: string } }
+  { params }: { params: Promise<{ matchid: string }> }
 ) {
   try {
     // Get the match ID from the URL parameters - with await
-    const { matchid } = await context.params
+    const { matchid } = await params;
     console.log("Match ID:", matchid)
     if (!matchid) {
       return NextResponse.json(
