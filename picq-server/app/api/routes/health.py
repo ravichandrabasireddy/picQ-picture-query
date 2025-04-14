@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from ...core.config import get_settings
@@ -12,7 +13,7 @@ class HealthResponse(BaseModel):
     status: str
     env: str
     version: str
-    last_active: str | None  # Changed from last_ingest to last_active
+    last_active: Optional[str] = None  # Changed from last_ingest to last_active
 
 @router.get("/health", response_model=HealthResponse)
 @router.get("/", response_model=HealthResponse)
