@@ -372,4 +372,8 @@ def get_intresting_details_prompt(image_analysis: str) -> str:
 Provide a brief explanation of why these details are particularly interesting or noteworthy, connecting different aspects of the image analysis where relevant.
 </explanation>
 
+<heading>
+Provide a short, catchy title or heading that encapsulates the essence of the interesting details you've identified. This should be engaging and reflective of the image's unique qualities.
+</heading>
+
 Remember to focus on the most intriguing elements that make this image unique or captivating based on the provided analysis."""

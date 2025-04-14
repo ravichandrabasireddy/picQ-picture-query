@@ -32,8 +32,9 @@ class MatchResponse(BaseModel):
     photo_analysis: Optional[str]
     is_best_match: bool
     reason_for_match: Optional[str]
-    interesting_details: Optional[str]
+    interesting_details: Optional[List[str]]
     rank: int
+    heading: Optional[str]
 
 class SearchResultResponse(BaseModel):
     search_id: str
@@ -168,6 +169,7 @@ async def get_search_results(
             "query_text": search['query_text'],
             "query_image_url": search['query_image_url'],
             "has_results": has_results,
+            
             "matches": []
         }
         
@@ -200,7 +202,7 @@ async def get_search_results(
     
                         # Note: In a real app, you might want to use a geocoding service 
                         # to convert coordinates to actual addresses
-                    
+
                     response["matches"].append({
                         "id": match['id'],
                         "photo_id": match['photo_id'],
@@ -210,8 +212,9 @@ async def get_search_results(
                         "photo_analysis": photo_data.get('photo_analysis'),
                         "is_best_match": match['is_best_match'],
                         "reason_for_match": match['reason_for_match'],
-                        "interesting_details": match['interesting_details'],
-                        "rank": match['rank']
+                        "interesting_details": match['interesting_details'].split("\n") if isinstance(match['interesting_details'], str) else match['interesting_details'],
+                        "rank": match['rank'],
+                        "heading":match['heading'],
                     })
         
         return response

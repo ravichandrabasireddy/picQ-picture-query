@@ -117,29 +117,39 @@ async def process_images(image_files, api_url, max_concurrent=10):
     # Create a progress bar
     pbar = tqdm(total=total_count, desc="Processing images")
     
+    # Create a counter for processed items
+    processed_count = 0
+    
     async with aiohttp.ClientSession() as session:
         tasks = []
-        for file_path in image_files:
+        for i, file_path in enumerate(image_files):
             task = asyncio.create_task(analyze_image(session, file_path, api_url, semaphore))
             
             # Add a callback to update counters and progress bar
-            def callback(task, file_path=file_path, i=len(tasks)+1):
-                nonlocal success_count, failed_count
-                try:
-                    result = task.result()
-                    if result:
-                        success_count += 1
-                    else:
+            def create_callback(fp):
+                def callback(task):
+                    nonlocal success_count, failed_count
+                    try:
+                        result = task.result()
+                        if result:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                        
+                        # Update the progress bar
+                        pbar.update(1)
+                        
+                        # Only log periodically to avoid excessive output
+                        if success_count % 10 == 0 or failed_count % 10 == 0:
+                            logger.info(f"Progress: {success_count + failed_count}/{total_count} - Success: {success_count}, Failed: {failed_count}")
+                    except Exception as e:
                         failed_count += 1
-                    
-                    logger.info(f"Progress: {i}/{total_count} - Success: {success_count}, Failed: {failed_count}")
-                    pbar.update(1)
-                except Exception as e:
-                    failed_count += 1
-                    logger.error(f"Callback error for {file_path}: {str(e)}")
-                    pbar.update(1)
+                        logger.error(f"Callback error for {fp}: {str(e)}")
+                        pbar.update(1)
+                return callback
             
-            task.add_done_callback(callback)
+            # Create a unique callback for each task
+            task.add_done_callback(create_callback(file_path))
             tasks.append(task)
         
         # Wait for all tasks to complete

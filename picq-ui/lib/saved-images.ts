@@ -1,9 +1,14 @@
+// Type for saved image data
 export type SavedImage = {
   id: string
   title: string
   image: string
   savedAt: number
   reason?: string
+  heading?: string
+  location?: string
+  takenAt?: string
+  interestingDetails?: string[]
 }
 
 // Key for localStorage

@@ -240,6 +240,7 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
                 if isinstance(interesting_details, list):
                     interesting_details = "\n".join(interesting_details)
                 explanation = details_data.get("explanation", "")
+                heading = details_data.get("heading", "")
                 logger.info(f"Generated interesting details for match {i+1}")
             except (json.JSONDecodeError, KeyError) as e:
                 logger.error(f"Error parsing interesting details response: {e}")
@@ -252,7 +253,8 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
                 "is_best_match": (match["rank"] == 0),  # Best match has rank 0
                 "reason_for_match": "\n".join(reasons) if isinstance(reasons, list) else reasons,
                 "interesting_details": interesting_details,
-                "rank": match["rank"]
+                "rank": match["rank"],
+                "heading": heading
             }
             
             match_result = supabase.table('matches').insert(match_data).execute()

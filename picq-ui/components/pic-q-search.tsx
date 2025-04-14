@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { generateUUID } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
 import { getRecentSearches, removeRecentSearch, clearAllRecentSearches, type RecentSearch } from "@/lib/recent-searches"
 import {
@@ -57,12 +56,12 @@ export default function PicQSearch() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      // Check file size - limit to 5MB
-      if (file.size > 5 * 1024 * 1024) {
+      // Check file size - limit to 10MB
+      if (file.size > 10 * 1024 * 1024) {
         setTimeout(() => {
           toast({
             title: "Image too large",
-            description: "Please select an image smaller than 5MB.",
+            description: "Please select an image smaller than 10MB.",
             variant: "destructive",
           })
         }, 0)
@@ -125,52 +124,49 @@ export default function PicQSearch() {
     setIsSearching(true)
 
     try {
-      // Generate a unique ID for this search
-      const searchId = generateUUID()
+      // Prepare form data for the API call
+      const formData = new FormData()
+      formData.append("query_text", searchText)
 
-      // In a real app, you would upload the image to a server here
-      // For now, we'll use sessionStorage instead of localStorage to avoid quota issues
-      if (imagePreview) {
-        try {
-          // Resize the image to reduce its size before storing
-          // Use a smaller size and lower quality
-          const resizedImage = await resizeImage(imagePreview, 400, 0.5)
+      // Add image to form data if available
+      if (imageFile) {
+        formData.append("query_image", imageFile)
+      }
 
-          // Try to use sessionStorage first (cleared when browser is closed)
-          sessionStorage.setItem(`search_image_${searchId}`, resizedImage)
-        } catch (error) {
-          console.error("Error storing image:", error)
-          // If storage fails, we can still proceed with the search
-          setTimeout(() => {
-            toast({
-              title: "Image storage failed",
-              description: "We'll proceed with your search, but the image preview might not be available.",
-              variant: "destructive",
-            })
-          }, 0)
+      // Make POST request to our API route instead of directly to the external API
+      const response = await fetch("/api/search", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (data.success && data.search_id) {
+        // Use the search_id from the API response for routing
+        // Removed the query parameter as it's not needed
+        router.push(`/search/${data.search_id}`)
+
+        // Add to recent searches
+        const newSearch: RecentSearch = {
+          id: data.search_id,
+          query: searchText,
+          imageUrl: data.query_image_url || "/placeholder.svg?height=200&width=300",
+          timestamp: Date.now(),
         }
-      }
 
-      // Add to recent searches
-      const newSearch: RecentSearch = {
-        id: searchId,
-        query: searchText,
-        // Use a placeholder instead of the actual image to save space
-        imageUrl: "/placeholder.svg?height=200&width=300",
-        timestamp: Date.now(),
-      }
-
-      // Redirect to the search results page with the search ID and query
-      router.push(`/search/${searchId}?q=${encodeURIComponent(searchText)}`)
-
-      // Add to recent searches (this will be processed when the user returns to this page)
-      try {
-        import("@/lib/recent-searches").then(({ addRecentSearch }) => {
-          addRecentSearch(newSearch)
-        })
-      } catch (error) {
-        console.error("Failed to add recent search:", error)
-        // Continue without adding to recent searches
+        try {
+          import("@/lib/recent-searches").then(({ addRecentSearch }) => {
+            addRecentSearch(newSearch)
+          })
+        } catch (error) {
+          console.error("Failed to add recent search:", error)
+        }
+      } else {
+        throw new Error("API response did not include a valid search_id")
       }
     } catch (error) {
       console.error("Search error:", error)
@@ -185,8 +181,14 @@ export default function PicQSearch() {
     }
   }
 
-  const handleQueryClick = (query: string) => {
-    setSearchText(query)
+  const handleQueryClick = (query: string, searchId?: string) => {
+    if (searchId) {
+      // If we have a search ID, navigate directly to the results page
+      router.push(`/search/${searchId}`)
+    } else {
+      // Otherwise, just set the search text
+      setSearchText(query)
+    }
   }
 
   const handleDeleteRecentSearch = (e: React.MouseEvent, id: string) => {
@@ -254,12 +256,12 @@ export default function PicQSearch() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0]
       if (file.type.startsWith("image/")) {
-        // Check file size - limit to 5MB
-        if (file.size > 5 * 1024 * 1024) {
+        // Check file size - limit to 10MB
+        if (file.size > 10 * 1024 * 1024) {
           setTimeout(() => {
             toast({
               title: "Image too large",
-              description: "Please upload an image smaller than 5MB.",
+              description: "Please upload an image smaller than 10MB.",
               variant: "destructive",
             })
           }, 0)
@@ -455,10 +457,13 @@ export default function PicQSearch() {
               {recentSearches.map((item) => (
                 <Tooltip key={item.id}>
                   <TooltipTrigger asChild>
-                    <div className="group cursor-pointer relative" onClick={() => handleQueryClick(item.query)}>
+                    <div
+                      className="group cursor-pointer relative"
+                      onClick={() => handleQueryClick(item.query, item.id)}
+                      >
                       <div className="relative overflow-hidden rounded-lg aspect-[4/3]">
                         <img
-                          src={item.imageUrl || "/placeholder.svg"}
+                          src={item.topMatchImageUrl || item.imageUrl || "/placeholder.svg?height=200&width=300"}
                           alt={item.query}
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         />

@@ -39,6 +39,7 @@ export default function SavedImagesPage() {
   }
 
   const handleImageClick = (image: SavedImage) => {
+    console.log("Image clicked:", image)
     setSelectedImage(image)
     setDialogOpen(true)
   }
@@ -144,9 +145,16 @@ export default function SavedImagesPage() {
           onOpenChange={setDialogOpen}
           image={selectedImage.image}
           title={selectedImage.title}
-          reason={selectedImage.reason || ""}
+          reason={selectedImage.reason || ""} 
+          id={selectedImage.id} 
+          matchId={selectedImage.id}
+          takenAt={selectedImage.takenAt} 
+          formattedAddress={selectedImage.location}
+          interestingDetails={selectedImage.interestingDetails || []}
+          heading={selectedImage.heading || ""}
         />
       )}
     </div>
   )
 }
+

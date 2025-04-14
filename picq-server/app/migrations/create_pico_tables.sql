@@ -40,6 +40,7 @@ CREATE TABLE public.matches (
     is_best_match BOOLEAN DEFAULT FALSE,
     reason_for_match TEXT,
     interesting_details TEXT,
+    heading TEXT,
     rank SMALLINT NOT NULL,  -- 0 = best match, 1-3 = other matches
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

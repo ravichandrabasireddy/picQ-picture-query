@@ -1,7 +1,10 @@
+// Type for recent search data
 export type RecentSearch = {
   id: string
   query: string
   imageUrl: string
+  resultUrl?: string // URL to the search results page
+  topMatchImageUrl?: string // URL of the top match image
   timestamp: number
 }
 
@@ -30,14 +33,22 @@ export function addRecentSearch(search: RecentSearch): void {
     // Make sure we're not storing data URLs which can be huge
     const safeSearch = {
       ...search,
-      // If it's a data URL, replace with a placeholder
-      imageUrl: search.imageUrl.startsWith("data:") ? "/placeholder.svg?height=200&width=300" : search.imageUrl,
+      // If it's a data URL or undefined/null, replace with a placeholder
+      imageUrl:
+        !search.imageUrl || search.imageUrl.startsWith("data:")
+          ? "/placeholder.svg?height=200&width=300"
+          : search.imageUrl,
+      // If topMatchImageUrl is a data URL or undefined/null, replace with a placeholder
+      topMatchImageUrl:
+        !search.topMatchImageUrl || search.topMatchImageUrl.startsWith("data:")
+          ? "/placeholder.svg?height=200&width=300"
+          : search.topMatchImageUrl,
     }
 
     const searches = getRecentSearches()
 
-    // Remove any existing search with the same query to avoid duplicates
-    const filteredSearches = searches.filter((s) => s.query.toLowerCase() !== safeSearch.query.toLowerCase())
+    // Remove any existing search with the same ID to avoid duplicates
+    const filteredSearches = searches.filter((s) => s.id !== safeSearch.id)
 
     // Add the new search at the beginning
     const updatedSearches = [safeSearch, ...filteredSearches]

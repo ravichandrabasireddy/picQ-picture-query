@@ -49,6 +49,9 @@ async def generate_intresting_details(image_analysis: str, client=None):
                             "explanation": genai.types.Schema(
                                 type = genai.types.Type.STRING,
                             ),
+                            "heading": genai.types.Schema(
+                                type = genai.types.Type.STRING,
+                            ),
                         },
                     ),
     )

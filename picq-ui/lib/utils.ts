@@ -14,6 +14,33 @@ export function generateUUID() {
   })
 }
 
+// Format a date string into a user-friendly format
+export function formatDate(dateString?: string): string {
+  if (!dateString) return "Date not available"
+
+  try {
+    const date = new Date(dateString)
+
+    // Check if date is valid
+    if (isNaN(date.getTime())) return "Date not available"
+
+    // Format options
+    const options: Intl.DateTimeFormatOptions = {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: true,
+    }
+
+    return new Intl.DateTimeFormat("en-US", options).format(date)
+  } catch (error) {
+    console.error("Error formatting date:", error)
+    return "Date not available"
+  }
+}
+
 // Mock API response for search results
 export function getMockSearchResults(query: string) {
   return {
