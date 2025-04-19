@@ -90,10 +90,12 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
                         image_analysis_stream = await generate_analysis(
                             str(temp_image_path), date, location, client
                         )
+                        chunks = []
                         async for chunk in collect_stream_content(image_analysis_stream):
+                            chunks.append(chunk)
                             yield {"event": "image_analysis_chunk", "data": json.dumps({"chunk": chunk})}
 
-                        image_analysis = "".join([chunk async for chunk in collect_stream_content(image_analysis_stream)])
+                        image_analysis = "".join(chunks)
                         yield {"event": "image_analysis_complete", "data": json.dumps({
                             "image_analysis": image_analysis
                         })}
@@ -118,6 +120,8 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
         formatted_query_response = ""
         async for chunk in collect_stream_content(format_query_stream):
             formatted_query_response += chunk
+            # Stream each chunk as it's received
+            yield {"event": "format_query_chunk", "data": json.dumps({"chunk": chunk})}
         
         # Parse the formatted query from JSON response
         try:
@@ -211,6 +215,10 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
             reasoning_response = ""
             async for chunk in collect_stream_content(reasoning_stream):
                 reasoning_response += chunk
+                yield {"event": "reasoning_progress", "data": json.dumps({
+                    "message": f"Processing match {i+1} of {len(similar_images)}",
+                    "chunk": chunk
+                })}
             
             # Parse reasoning JSON response
             try:
@@ -232,6 +240,10 @@ async def search_stream(search_id: str, query: str, image_url: Optional[str] = N
             interesting_details_response = ""
             async for chunk in collect_stream_content(interesting_details_stream):
                 interesting_details_response += chunk
+                yield {"event": "interesting_details_progress", "data": json.dumps({
+                    "message": f"Generating interesting details for match {i+1}",
+                    "chunk": chunk
+                })}
             
             # Parse interesting details response
             try:
@@ -312,14 +324,23 @@ async def update_photo_analysis(photo_id: str, image_analysis: str, client):
         supabase = get_supabase_client()
         
         # Generate embeddings for the image analysis
+        logger.info(f"Generating embeddings for photo_id: {photo_id}")
         embeddings = await generate_embeddings(image_analysis, client)
         
+        if not embeddings:
+            logger.error(f"Failed to generate embeddings for photo_id: {photo_id}")
+            return
+        logger.info(f"Successfully generated embeddings for photo_id: {photo_id}")
         # Update photo record with analysis and embeddings
-        supabase.table('photos').update({
+        result = supabase.table('photos').update({
             'photo_analysis': image_analysis,
             'photo_analysis_vector': embeddings
         }).eq('id', photo_id).execute()
         
-        logger.info(f"Updated photo {photo_id} with analysis and embeddings at end of search process")
+        # Log the result status
+        if result and hasattr(result, 'data') and result.data:
+            logger.info(f"Database update successful for photo_id: {photo_id}, updated {len(result.data)} records")
+        else:
+            logger.warning(f"Database update may have failed for photo_id: {photo_id}. Response: {result}")
     except Exception as e:
-        logger.error(f"Failed to update photo analysis: {str(e)}")
+        logger.error(f"Failed to update photo analysis for photo_id: {photo_id}. Error: {str(e)}", exc_info=True)

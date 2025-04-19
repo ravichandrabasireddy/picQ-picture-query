@@ -13,6 +13,7 @@ import {
   Calendar,
   ImageIcon,
   AlertCircle,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -22,7 +23,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { saveImage, removeSavedImage, isImageSaved } from "@/lib/saved-images"
 import { addRecentSearch } from "@/lib/recent-searches"
-import { SearchProgress, type SearchStep } from "@/components/search-progress"
+import { type SearchStep } from "@/components/search-progress"
 import { SSEClient } from "@/lib/sse-client"
 import { formatDate } from "@/lib/utils"
 
@@ -96,10 +97,25 @@ export default function SearchResultsPage() {
   const [formattingExplanation, setFormattingExplanation] = useState("")
   const [matchesWithReasoning, setMatchesWithReasoning] = useState<SearchResult[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [resultsReady, setResultsReady] = useState(false)
+  const [showNoResults, setShowNoResults] = useState(false)
 
-  // Add refs to track API calls and SSE client
+  // Track progress for all stages that produce chunks
+  const [queryAnalysisProgress, setQueryAnalysisProgress] = useState<string>("");
+  const [imageAnalysisProgress, setImageAnalysisProgress] = useState<string>("");
+  const [formatQueryProgress, setFormatQueryProgress] = useState<string>("");
+  const [reasoningProgress, setReasoningProgress] = useState<string>("");
+  const [interestingDetailsProgress, setInterestingDetailsProgress] = useState<string>("");
+  const [currentProgressStage, setCurrentProgressStage] = useState<string>("");
+  const [currentMatchProcessing, setCurrentMatchProcessing] = useState<string>("");
+  const [showProgressChunks, setShowProgressChunks] = useState<boolean>(true);
+
+  // Add refs to track API calls, SSE client, and text accumulation
   const apiCallMadeRef = useRef(false)
   const sseClientRef = useRef<SSEClient | null>(null)
+  const reasoningProgressRef = useRef<string>("")
+  const interestingDetailsProgressRef = useRef<string>("")
+  const currentMatchProcessingRef = useRef<string>("")
 
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([
     {
@@ -146,6 +162,7 @@ export default function SearchResultsPage() {
       message: "Analyzing matches...",
       completed: false,
       current: false,
+      streamedText: "",
     },
   ])
 
@@ -159,9 +176,7 @@ export default function SearchResultsPage() {
   ) => {
     setSearchSteps((prevSteps) => {
       // Create a new array with updated steps
- 
       const updatedSteps = prevSteps.map((step) => {
-
         if (step.id === stepId) {
           // Update the target step
           const newStreamedText =
@@ -190,8 +205,18 @@ export default function SearchResultsPage() {
         }
       })
 
-      return updatedSteps
+      // Debug log the updated steps
+      const currentStep = updatedSteps.find(s => s.current);
+      console.log(`[updateSearchStep] Updated steps for ${stepId}, current step is now: ${currentStep?.id}`);
+      
+      // Force React to treat this as a new array to ensure re-render
+      return [...updatedSteps];
     })
+    
+    // Force update outside of the setState callback to ensure UI updates
+    setTimeout(() => {
+      setSearchSteps(currentSteps => [...currentSteps]);
+    }, 0);
   }
 
   // Fetch search results from the API
@@ -224,7 +249,7 @@ export default function SearchResultsPage() {
         if (data.has_results && data.matches && data.matches.length > 0) {
           // We have results, so we can stop loading
           setIsLoading(false)
-          console.log("Search results:", data.matches[0])
+          setResultsReady(true)
 
 
           // Add to recent searches
@@ -236,7 +261,6 @@ export default function SearchResultsPage() {
                 topMatchImageUrl: data.matches[0].photo_url || "/placeholder.svg?height=200&width=300",
                 timestamp: Date.now(),
               }
-              console.log("Adding recent search 4:", searchDataForRecent)
               addRecentSearch(searchDataForRecent)
             } catch (error) {
               console.error("Failed to add recent search:", error)
@@ -245,16 +269,15 @@ export default function SearchResultsPage() {
 
           // Check which results are already saved
           const newSavedSet = new Set<string>()
-          data.matches.forEach((match: { photo_id: string }) => {
-            if (isImageSaved(`${searchId}_${match.photo_id}`)) {
-              newSavedSet.add(match.photo_id)
+          data.matches.forEach((match: { id: string }) => {
+            if (isImageSaved(`${match.id}`)) {
+              newSavedSet.add(match.id)
             }
           })
           setSavedResults(newSavedSet)
         } else {
           // We don't have results, so we need to initiate a search
           setIsProcessing(true)
-          console.log("Search results 2:", data)
         
           initiateSearch(data)
         }
@@ -280,6 +303,20 @@ export default function SearchResultsPage() {
     }
   }, [searchId, toast])
 
+  useEffect(() => {
+    if (!isLoading && !isProcessing && !getBestMatch() && getOtherMatches().length === 0 && searchData) {
+      // Add a short delay before showing "No Results"
+      const timer = setTimeout(() => {
+        setShowNoResults(true)
+      }, 500); // 500ms delay
+      
+      return () => clearTimeout(timer);
+    } else {
+      setShowNoResults(false);
+    }
+  }, [isLoading, isProcessing, searchData]);
+
+
   // Function to initiate a search using our SSE client
   const initiateSearch = async (data: SearchData) => {
     try {
@@ -296,6 +333,15 @@ export default function SearchResultsPage() {
       }
 
       console.log("Initiating search with data:", searchRequestData)
+
+      // Adjust search steps based on whether we have an image or not
+      if (!data.query_image_url) {
+        // Remove the image analysis step if there's no image
+        setSearchSteps(prevSteps => 
+          prevSteps.filter(step => step.id !== "image_analysis")
+        );
+        console.log("No image provided, removing image analysis step");
+      }
 
       // Set up the SSE client for real-time updates
       const eventSourceUrl = `/api/initiate-search?${new URLSearchParams({
@@ -332,16 +378,20 @@ export default function SearchResultsPage() {
       // Set up event handlers for each event type with immediate UI updates
       sseClient.on("extract_query_start", (data) => {
         console.log("extract_query_start event received:", data)
-        // Force immediate UI update
+        // Update step and set current progress stage
         setCurrentStep("extract_query")
+        setCurrentProgressStage("query_analysis")
+        setQueryAnalysisProgress("")
         updateSearchStep("extract_query", true, false, data.message, "")
       })
 
       sseClient.on("extract_query_chunk", (data) => {
         console.log("extract_query_chunk event received:", data)
         if (data.chunk) {
-          // Update UI immediately with new chunk
+          // Update both the search step and the dedicated progress display
           updateSearchStep("extract_query", true, false, undefined, (prev) => prev + data.chunk)
+          // Also accumulate in the queryAnalysisProgress state for the detailed display
+          setQueryAnalysisProgress(prev => prev + data.chunk)
         }
       })
 
@@ -349,20 +399,26 @@ export default function SearchResultsPage() {
         console.log("extract_query_complete event received:", data)
         updateSearchStep("extract_query", false, true, "Query analysis complete")
         setExtractedDetails(data.extracted_details || "")
+        // Clear the current progress stage since this stage is complete
+        setCurrentProgressStage("")
       })
 
       sseClient.on("image_analysis_start", (data) => {
         console.log("image_analysis_start event received:", data)
-        // Force immediate UI update
+        // Update step and set current progress stage
         setCurrentStep("image_analysis")
+        setCurrentProgressStage("image_analysis")
+        setImageAnalysisProgress("")
         updateSearchStep("image_analysis", true, false, data.message, "")
       })
 
       sseClient.on("image_analysis_chunk", (data) => {
         console.log("image_analysis_chunk event received:", data)
         if (data.chunk) {
-          // Update UI immediately with new chunk
+          // Update both the search step and the dedicated progress display
           updateSearchStep("image_analysis", true, false, undefined, (prev) => prev + data.chunk)
+          // Also accumulate in the imageAnalysisProgress state for the detailed display
+          setImageAnalysisProgress(prev => prev + data.chunk)
         }
       })
 
@@ -370,11 +426,15 @@ export default function SearchResultsPage() {
         console.log("image_analysis_complete event received:", data)
         updateSearchStep("image_analysis", false, true, "Image analysis complete")
         setImageAnalysis(data.image_analysis || "")
+        // Clear the current progress stage since this stage is complete
+        setCurrentProgressStage("")
       })
 
       sseClient.on("format_query_start", (data) => {
         console.log("format_query_start event received:", data)
-        // Force immediate UI update
+        // Set current progress stage and reset the progress text
+        setCurrentProgressStage("format_query")
+        setFormatQueryProgress("")
         setCurrentStep("format_query")
         updateSearchStep("format_query", true, false, data.message, "")
       })
@@ -382,8 +442,10 @@ export default function SearchResultsPage() {
       sseClient.on("format_query_chunk", (data) => {
         console.log("format_query_chunk event received:", data)
         if (data.chunk) {
-          // Update UI immediately with new chunk
+          // Update both the search step and the dedicated progress display
           updateSearchStep("format_query", true, false, undefined, (prev) => prev + data.chunk)
+          // Also accumulate in the formatQueryProgress state for the detailed display
+          setFormatQueryProgress(prev => prev + data.chunk)
         }
       })
 
@@ -392,6 +454,8 @@ export default function SearchResultsPage() {
         updateSearchStep("format_query", false, true, "Query formatting complete")
         setFormattedQuery(data.formatted_query || "")
         setFormattingExplanation(data.explanation || "")
+        // Clear the current progress stage since this stage is complete
+        setCurrentProgressStage("")
       })
 
       sseClient.on("search_start", (data) => {
@@ -415,12 +479,52 @@ export default function SearchResultsPage() {
 
       sseClient.on("reasoning_progress", (data) => {
         console.log("reasoning_progress event received:", data)
-        updateSearchStep("reasoning", true, false, data.message)
+        
+        // Only reset progress when we're starting a new match
+        if (data.message && data.message.includes("Processing match") && data.message !== currentMatchProcessingRef.current) {
+          // This is a new match message, so clear previous progress
+          console.log("New match detected, resetting progress:", data.message)
+          reasoningProgressRef.current = ""
+          interestingDetailsProgressRef.current = ""
+          currentMatchProcessingRef.current = data.message
+          setReasoningProgress("")
+          setInterestingDetailsProgress("")
+          setCurrentMatchProcessing(data.message)
+          updateSearchStep("reasoning", true, false, data.message)
+        }
+        
+        // Always concatenate chunks for the current match using both state and ref
+        if (data.chunk) {
+          console.log("Adding chunk to reasoning progress:", data.chunk.substring(0, 30) + "...")
+          reasoningProgressRef.current += data.chunk
+          setReasoningProgress(reasoningProgressRef.current)
+        }
+      })
+
+      sseClient.on("interesting_details_progress", (data) => {
+        console.log("interesting_details_progress event received:", data)
+        
+        // Check if this is a new message type
+        const isNewMessage = !currentMatchProcessing.includes(data.message);
+        
+        // Only update the step message if it's a new type of message
+        if (isNewMessage && data.message) {
+          updateSearchStep("reasoning", true, false, data.message)
+        }
+        
+        // Always concatenate chunks without resetting
+        if (data.chunk) {
+          setInterestingDetailsProgress(prev => prev + data.chunk)
+        }
       })
 
       sseClient.on("match_reasoning_complete", (data) => {
         console.log("match_reasoning_complete event received:", data)
         setMatchesWithReasoning((prev) => [...prev, data])
+        
+        // Reset progress tracking for the next match
+        setInterestingDetailsProgress("")
+        setCurrentMatchProcessing("")
       })
 
       sseClient.on("reasoning_complete", (data) => {
@@ -470,12 +574,15 @@ export default function SearchResultsPage() {
 
       const data = await response.json()
       setSearchData(data)
+      if (data && data.matches && data.matches.length > 0) {
+        setResultsReady(true)
+      }
 
       // Check which results are already saved
       const newSavedSet = new Set<string>()
-      data.matches.forEach((match: { photo_id: string }) => {
-        if (isImageSaved(`${searchId}_${match.photo_id}`)) {
-          newSavedSet.add(match.photo_id)
+      data.matches.forEach((match: { id: string }) => {
+        if (isImageSaved(`${match.id}`)) {
+          newSavedSet.add(match.id)
         }
       })
       setSavedResults(newSavedSet)
@@ -519,17 +626,17 @@ export default function SearchResultsPage() {
   }
 
   const toggleSaveResult = (result: SearchResult) => {
-    const resultId = `${searchId}_${result.photo_id}`
+   const resultId = `${result.id}`
 
     // Check if already saved
-    const isSaved = savedResults.has(result.photo_id)
+   const isSaved = savedResults.has(resultId)
 
     if (isSaved) {
       // Remove from saved
       removeSavedImage(resultId)
       setSavedResults((prev) => {
         const newSet = new Set(prev)
-        newSet.delete(result.photo_id)
+        newSet.delete(resultId)
         return newSet
       })
 
@@ -557,7 +664,7 @@ export default function SearchResultsPage() {
 
       setSavedResults((prev) => {
         const newSet = new Set(prev)
-        newSet.add(result.photo_id)
+        newSet.add(result.id)
         return newSet
       })
 
@@ -568,6 +675,18 @@ export default function SearchResultsPage() {
         })
       }, 0)
     }
+  }
+
+  const handleSaveChange = (imageId: string, isSaved: boolean) => {
+    setSavedResults((prev) => {
+      const newSet = new Set(prev);
+      if (isSaved) {
+        newSet.add(imageId);
+      } else {
+        newSet.delete(imageId);
+      }
+      return newSet;
+    });
   }
 
   // Simplified share function that only uses clipboard
@@ -750,11 +869,21 @@ export default function SearchResultsPage() {
                   {searchData.query_text}
                 </p>
                 <div className="pt-2">
-                  <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200">
-                    <span className="relative flex h-2 w-2 mr-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 dark:bg-amber-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 dark:bg-amber-300"></span>
-                    </span>
+                <div
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      isProcessing
+                        ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200"
+                        : "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200"
+                    }`}
+                  >
+                    {isProcessing ? (
+                      <span className="relative flex h-2 w-2 mr-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 dark:bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 dark:bg-amber-300"></span>
+                      </span>
+                    ) : (
+                      <Check className="h-3 w-3 mr-1.5 text-green-500 dark:text-green-300" />
+                    )}
                     {isProcessing ? "Processing with AI" : "Processed with AI"}
                   </div>
                 </div>
@@ -766,9 +895,154 @@ export default function SearchResultsPage() {
 
       {isProcessing ? (
         <div className="flex flex-col items-center justify-center py-8">
-          {/* <Card className="w-full max-w-2xl p-6 border-gray-200 dark:border-gray-800">
-            <SearchProgress steps={searchSteps} />
-          </Card> */}
+          <Card className="w-full max-w-2xl p-6 border-gray-200 dark:border-gray-800">
+            {/* Custom Search Progress UI instead of SearchProgress component */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium mb-4">Processing Your Query</h3>
+              
+              {/* Progress Steps */}
+              <ul className="space-y-4">
+                {searchSteps.map((step) => {
+                  const isVisible = step.current || step.completed;
+                  return (
+                    <li
+                      key={step.id}
+                      className={`transition-all duration-300 bg-zinc-50 dark:bg-zinc-900 border ${
+                        step.current ? "border-amber-600" : step.completed ? "border-green-500" : "border-zinc-700"
+                      } p-4 rounded-lg ${step.current ? "shadow-md shadow-amber-900/20" : ""}`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-2">
+                          {step.completed ? (
+                            <CheckCircle2 className="text-green-500 w-4 h-4" />
+                          ) : step.current ? (
+                            <div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
+                          ) : (
+                            <div className="w-4 h-4 rounded-full border border-gray-500" />
+                          )}
+                          <span className={`font-medium ${step.current ? "text-amber-600 dark:text-amber-400" : ""}`}>{step.name}</span>
+                        </div>
+                        <span className={`text-sm ${
+                          !isVisible ? "text-gray-400" : 
+                          step.current ? "text-amber-600 dark:text-amber-400" :
+                          "text-green-600 dark:text-green-400"
+                        } capitalize`}>
+                          {!isVisible && "Waiting..."}
+                          {step.current && "In Progress"}
+                          {step.completed && "Completed"}
+                        </span>
+                      </div>
+
+                      {/* Streamed text for this step - Only show if not shown in the dedicated progress box */}
+                      {step.current && step.streamedText && 
+                       !(
+                         (step.id === "extract_query" && currentProgressStage === "query_analysis") || 
+                         (step.id === "image_analysis" && currentProgressStage === "image_analysis") ||
+                         (step.id === "format_query" && currentProgressStage === "format_query") ||
+                         (step.id === "reasoning" && currentMatchProcessing)
+                       ) && (
+                        <div className="mt-2 bg-gray-100 dark:bg-gray-800 p-3 rounded text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto scroll-smooth">
+                          {step.streamedText}
+                          {step.current && (
+                            <span className="inline-block w-2 h-4 bg-amber-500 ml-1 animate-pulse"></span>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              
+              {/* Match Processing Details shared box - shows query analysis, reasoning or interesting details */}
+              {(currentProgressStage === "query_analysis" || currentProgressStage === "image_analysis" || currentProgressStage === "format_query" || currentMatchProcessing) && (
+                <div className="mt-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/30 rounded-lg p-4">
+                  <div className="text-sm font-medium text-amber-700 dark:text-amber-400 mb-3">
+                    {currentProgressStage === "query_analysis" && "Analyzing your query..."}
+                    {currentProgressStage === "image_analysis" && "Analyzing your image..."}
+                    {currentProgressStage === "format_query" && "Formatting your query..."}
+                    {currentMatchProcessing && currentMatchProcessing}
+                  </div>
+                  
+                  {/* Show just one progress box based on current stage */}
+                  {currentProgressStage === "query_analysis" && queryAnalysisProgress && (
+                    <div>
+                      <div className="flex items-center text-sm font-medium mb-2">
+                        <div className="h-3 w-3 rounded-full bg-blue-500 mr-2"></div>
+                        <span className="text-blue-700 dark:text-blue-400">Query Analysis Progress</span>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 p-3 rounded-md text-sm font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-blue-100 dark:border-blue-900/30">
+                        {queryAnalysisProgress}
+                        <span className="inline-block w-2 h-4 bg-blue-500 ml-1 animate-pulse"></span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {currentProgressStage === "image_analysis" && imageAnalysisProgress && (
+                    <div>
+                      <div className="flex items-center text-sm font-medium mb-2">
+                        <div className="h-3 w-3 rounded-full bg-purple-500 mr-2"></div>
+                        <span className="text-purple-700 dark:text-purple-400">Image Analysis Progress</span>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 p-3 rounded-md text-sm font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-purple-100 dark:border-purple-900/30">
+                        {imageAnalysisProgress}
+                        <span className="inline-block w-2 h-4 bg-purple-500 ml-1 animate-pulse"></span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {currentProgressStage === "format_query" && formatQueryProgress && (
+                    <div>
+                      <div className="flex items-center text-sm font-medium mb-2">
+                        <div className="h-3 w-3 rounded-full bg-yellow-500 mr-2"></div>
+                        <span className="text-yellow-700 dark:text-yellow-400">Query Formatting Progress</span>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 p-3 rounded-md text-sm font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-yellow-100 dark:border-yellow-900/30">
+                        {formatQueryProgress}
+                        <span className="inline-block w-2 h-4 bg-yellow-500 ml-1 animate-pulse"></span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {currentMatchProcessing && interestingDetailsProgress && (
+                    <div>
+                      <div className="flex items-center text-sm font-medium mb-2">
+                        <div className="h-3 w-3 rounded-full bg-green-500 mr-2"></div>
+                        <span className="text-green-700 dark:text-green-400">Interesting Details Progress</span>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 p-3 rounded-md text-sm font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-green-100 dark:border-green-900/30">
+                        {interestingDetailsProgress}
+                        <span className="inline-block w-2 h-4 bg-green-500 ml-1 animate-pulse"></span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {currentMatchProcessing && !interestingDetailsProgress && reasoningProgress && (
+                    <div>
+                      <div className="flex items-center text-sm font-medium mb-2">
+                        <div className="h-3 w-3 rounded-full bg-amber-500 mr-2"></div>
+                        <span className="text-amber-700 dark:text-amber-400">Reasoning Progress</span>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 p-3 rounded-md text-sm font-mono whitespace-pre-wrap max-h-60 overflow-y-auto border border-amber-100 dark:border-amber-900/30">
+                        {reasoningProgress}
+                        <span className="inline-block w-2 h-4 bg-amber-500 ml-1 animate-pulse"></span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-end mt-3">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowProgressChunks(!showProgressChunks)}
+                      className="text-xs"
+                    >
+                      {showProgressChunks ? 'Hide Details' : 'Show Details'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
 
           {/* Skeleton loaders for results */}
           <div className="w-full mt-8 space-y-8">
@@ -842,7 +1116,7 @@ export default function SearchResultsPage() {
                         toggleSaveResult(bestMatch)
                       }}
                     >
-                      {savedResults.has(bestMatch.photo_id) ? (
+                      {savedResults.has(bestMatch.id) ? (
                         <BookmarkCheck className="h-4 w-4 text-amber-500" />
                       ) : (
                         <Bookmark className="h-4 w-4" />
@@ -931,7 +1205,7 @@ export default function SearchResultsPage() {
                             toggleSaveResult(match)
                           }}
                         >
-                          {savedResults.has(match.photo_id) ? (
+                          {savedResults.has(match.id) ? (
                             <BookmarkCheck className="h-4 w-4 text-amber-500" />
                           ) : (
                             <Bookmark className="h-4 w-4" />
@@ -988,7 +1262,7 @@ export default function SearchResultsPage() {
           )}
 
           {/* No Results */}
-          {!bestMatch && otherMatches.length === 0 && (
+          {!isLoading && !isProcessing && showNoResults && (
             <div className="flex flex-col items-center justify-center py-8">
               <Card className="w-full max-w-2xl p-6 border-gray-200 dark:border-gray-800">
                 <h2 className="text-xl font-bold mb-4">No Results Found</h2>
@@ -1016,6 +1290,7 @@ export default function SearchResultsPage() {
           heading={selectedResult.heading}
           interestingDetails={selectedResult.interesting_details}
           matchId={selectedResult.id} 
+          onSaveChange={handleSaveChange}
         />
       )}
     </div>

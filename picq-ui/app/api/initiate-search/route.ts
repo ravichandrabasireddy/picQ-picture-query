@@ -13,8 +13,14 @@ export async function GET(request: NextRequest) {
       try {
         console.log(`Initiating search with ID: ${searchId}, query: ${query}`)
 
+        // Send initial connecting event to client
+        controller.enqueue(encoder.encode(`event: connecting\ndata: ${JSON.stringify({ message: "Connecting to search API..." })}\n\n`))
+
         // Make a request to the external API using environment variables
-        const response = await fetch(`${process.env.PICQ_BACKEND_URI}${process.env.PICQ_IMAGE_SEARCH}`, {
+        const apiUrl = `${process.env.PICQ_BACKEND_URI}${process.env.PICQ_IMAGE_SEARCH}`
+        console.log(`Connecting to backend API: ${apiUrl}`)
+        
+        const response = await fetch(apiUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -27,135 +33,75 @@ export async function GET(request: NextRequest) {
           }),
         })
 
+        console.log(`Backend API response status: ${response.status}`)
+
         if (!response.ok) {
           const errorText = await response.text()
           console.error(`API request failed with status ${response.status}: ${errorText}`)
 
           // Send error event to client immediately
-          const errorEvent = `event: error\ndata: ${JSON.stringify({
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({
             message: `API request failed with status ${response.status}`,
             details: errorText,
-          })}\n\n`
-
-          controller.enqueue(encoder.encode(errorEvent))
-          controller.close()
-          return
-        }
-
-        // Set up a reader for the response body
-        const reader = response.body?.getReader()
-        if (!reader) {
-          console.error("Failed to get response reader")
-
-          // Send error event to client
-          const errorEvent = `event: error\ndata: ${JSON.stringify({
-            message: "Failed to get response reader",
-          })}\n\n`
-
-          controller.enqueue(encoder.encode(errorEvent))
+          })}\n\n`))
           controller.close()
           return
         }
 
         console.log("Successfully connected to search stream")
+        controller.enqueue(encoder.encode(`event: connected\ndata: ${JSON.stringify({ message: "Search stream connected" })}\n\n`))
 
-        // Process the stream
-        const decoder = new TextDecoder()
-        let buffer = ""
-
-        while (true) {
-          const { done, value } = await reader.read()
-
-          if (done) {
-            console.log("Stream complete")
-            break
-          }
-
-          // Decode the chunk and add it to the buffer
-          const chunk = decoder.decode(value, { stream: true })
-          console.log("Received chunk:", chunk)
-          buffer += chunk
-
-          // Process complete events in the buffer
-          let eventEnd = buffer.indexOf("\n\n")
-          while (eventEnd >= 0) {
-            const eventData = buffer.substring(0, eventEnd)
-            buffer = buffer.substring(eventEnd + 2)
-
-            // Parse the event data
-            const eventLines = eventData.split("\n")
-            let event = "message"
-            let data = ""
-
-            for (const line of eventLines) {
-              if (line.startsWith("event: ")) {
-                event = line.substring(7)
-              } else if (line.startsWith("data: ")) {
-                data = line.substring(6)
+        // Simple direct approach using manual reading from the stream
+        if (response.body) {
+          const reader = response.body.getReader()
+          let chunkCount = 0
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              
+              if (done) {
+                console.log(`Stream complete. Forwarded ${chunkCount} chunks directly.`)
+                break
               }
+              
+              // Forward the chunk directly
+              chunkCount++
+              const textChunk = new TextDecoder().decode(value)
+              console.log(`Forwarding CHUNK #${chunkCount}:`, textChunk.substring(0, 100) + (textChunk.length > 100 ? "..." : ""))
+              
+              // Pass the chunk through to the client without any modification
+              controller.enqueue(value)
             }
-
-            // Forward the event to the client immediately
-            const eventOutput = `event: ${event}\ndata: ${data}\n\n`
-            controller.enqueue(encoder.encode(eventOutput))
-            console.log(`Forwarding event: ${event}`)
-
-            // Flush the stream to ensure immediate delivery
-            try {
-              // @ts-ignore - This is a non-standard method but works in some environments
-              if (controller.flush) {
-                // @ts-ignore 
-                await controller.flush()
-              }
-            } catch (e) {
-              // Ignore flush errors
-            }
-
-            // Check for the next event
-            eventEnd = buffer.indexOf("\n\n")
+            
+            // Send a final event to signify successful completion
+            controller.enqueue(encoder.encode(`event: stream_end\ndata: ${JSON.stringify({ 
+              message: "Stream processing complete",
+              chunks_forwarded: chunkCount
+            })}\n\n`))
+          } catch (readError) {
+            console.error("Error reading from stream:", readError)
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({
+              message: "Error reading from stream",
+              details: readError instanceof Error ? readError.message : String(readError)
+            })}\n\n`))
+          } finally {
+            controller.close()
           }
+        } else {
+          throw new Error("Response body is null")
         }
-
-        // Process any remaining data in the buffer
-        if (buffer.length > 0) {
-          console.log("Processing remaining buffer data:", buffer)
-
-          // Try to parse as an event if possible
-          if (buffer.includes("event: ")) {
-            const eventLines = buffer.split("\n")
-            let event = "message"
-            let data = ""
-
-            for (const line of eventLines) {
-              if (line.startsWith("event: ")) {
-                event = line.substring(7)
-              } else if (line.startsWith("data: ")) {
-                data = line.substring(6)
-              }
-            }
-
-            const eventOutput = `event: ${event}\ndata: ${data}\n\n`
-            controller.enqueue(encoder.encode(eventOutput))
-          } else {
-            // Otherwise send as generic message
-            controller.enqueue(encoder.encode(`data: ${buffer}\n\n`))
-          }
-        }
-
-        controller.close()
       } catch (error) {
         console.error("Error in SSE stream:", error)
-
+        
         // Send error event to client
-        const errorEvent = `event: error\ndata: ${JSON.stringify({
+        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({
           message: "Internal server error",
-          details: error instanceof Error ? error.message : String(error),
-        })}\n\n`
-
-        controller.enqueue(encoder.encode(errorEvent))
+          details: error instanceof Error ? error.message : String(error)
+        })}\n\n`))
         controller.close()
       }
-    },
+    }
   })
 
   return new Response(stream, {

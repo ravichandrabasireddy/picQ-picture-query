@@ -100,6 +100,9 @@ async def create_search(
             "query_text": query_text,
             "query_image_url": query_image_url
         }
+
+        if photo_id:
+            search_data["photo_id"] = photo_id
         
         result = supabase.table('searches').insert(search_data).execute()
         
