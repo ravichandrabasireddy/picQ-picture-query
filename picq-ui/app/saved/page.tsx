@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Download, ExternalLink } from "lucide-react"
+import { ArrowLeft, Trash2, Download, ExternalLink, MapPin, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useToast } from "@/components/ui/use-toast"
 import { getSavedImages, removeSavedImage, type SavedImage } from "@/lib/saved-images"
 import { ImageDetailDialog } from "@/components/image-detail-dialog"
+import { formatDate } from "@/lib/utils"
 
 export default function SavedImagesPage() {
   const router = useRouter()
@@ -44,11 +45,21 @@ export default function SavedImagesPage() {
     setDialogOpen(true)
   }
 
-  const formatDate = (timestamp: number) => {
+  const formatedDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
+    })
+  }
+  const handleSaveChange = (id: string) => {
+    const updatedImages = savedImages.filter((image) => image.id !== id)
+    setSavedImages(updatedImages)
+    removeSavedImage(id)
+
+    toast({
+      title: "Image removed",
+      description: "The image has been removed from your saved items.",
     })
   }
 
@@ -91,11 +102,12 @@ export default function SavedImagesPage() {
               <div className="aspect-video relative cursor-pointer" onClick={() => handleImageClick(image)}>
                 <img
                   src={image.image || "/placeholder.svg"}
-                  alt={image.title}
+                  alt={image.heading || ""}
                   className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 dark:group-hover:bg-black/20 transition-colors" />
-
+               {/* Location and date overlay on hover */}
+              
                 <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button
                     variant="secondary"
@@ -122,8 +134,23 @@ export default function SavedImagesPage() {
                 </div>
               </div>
               <div className="p-4">
-                <h3 className="text-lg font-medium mb-1 line-clamp-1">{image.title}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Saved on {formatDate(image.savedAt)}</p>
+                <h3 className="text-lg font-medium mb-1 line-clamp-1">{image.heading}</h3>
+                 {/* Display location and date if available */}
+                 <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-sm text-gray-500 dark:text-gray-400">
+                  {image.location && (
+                    <div className="flex items-center">
+                      <MapPin className="h-3.5 w-3.5 mr-1 text-amber-500 dark:text-amber-400" />
+                      <span>{image.location}</span>
+                    </div>
+                  )}
+                  {image.takenAt && (
+                    <div className="flex items-center">
+                      <Calendar className="h-3.5 w-3.5 mr-1 text-amber-500 dark:text-amber-400" />
+                      <span>{formatedDate(new Date(image.takenAt).getTime())}</span>
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Saved on {formatedDate(image.savedAt)}</p>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -139,19 +166,21 @@ export default function SavedImagesPage() {
       )}
 
       {/* Image Detail Dialog */}
+  
       {selectedImage && (
         <ImageDetailDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           image={selectedImage.image}
-          title={selectedImage.title}
+          title={selectedImage.heading || selectedImage.title || ""}
           reason={selectedImage.reason || ""} 
           id={selectedImage.id} 
           matchId={selectedImage.id}
-          takenAt={selectedImage.takenAt} 
+          takenAt={formatDate(selectedImage.takenAt)} 
           formattedAddress={selectedImage.location}
           interestingDetails={selectedImage.interestingDetails || []}
           heading={selectedImage.heading || ""}
+          onSaveChange={handleSaveChange} //
         />
       )}
     </div>

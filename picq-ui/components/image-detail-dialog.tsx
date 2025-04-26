@@ -20,7 +20,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { cn } from "@/lib/utils"
+import { cn, reverseFormatDate } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
 import { saveImage, removeSavedImage, isImageSaved } from "@/lib/saved-images"
 
@@ -52,7 +52,6 @@ function extractTextFromXML(text: string): string {
   return text.trim()
 }
 
-
 type ImageDetailProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -64,10 +63,10 @@ type ImageDetailProps = {
   takenAt?: string
   interestingDetails?: string[]
   heading?: string
-
   matchId: string
+  // Add this new callback prop
+  onSaveChange?: (id: string, isSaved: boolean) => void
 }
-
 
 export function ImageDetailDialog({
   open,
@@ -79,31 +78,32 @@ export function ImageDetailDialog({
   formattedAddress,
   takenAt,
   interestingDetails = [],
-  heading,  
-  matchId
+  heading,
+  matchId,
+  onSaveChange,
 }: ImageDetailProps) {
 
   function formatReasonIntoPoints(reasonText: string): string[] {
     if (!reasonText) return []
-  
+
     // Split by sentences (looking for period followed by space or end of string)
     let points = reasonText.split(/\.\s+|\.$/).filter(Boolean)
-  
+
     // If we have very few points, try to split by commas or semicolons
     if (points.length <= 2 && reasonText.length > 100) {
       points = reasonText.split(/[,;]\s+/).filter(Boolean)
     }
-  
+
     // Limit to 5 points maximum
     points = points.slice(0, 5)
-  
+
     // Make sure each point ends with a period
     return points.map((point) => {
       point = point.trim()
       return point.endsWith(".") ? point : `${point}.`
     })
   }
-  
+
   const [chatHistory, setChatHistory] = useState<ChatHistory | null>(null)
   const [isFetchingChat, setIsFetchingChat] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
@@ -126,239 +126,300 @@ export function ImageDetailDialog({
   const imageDate = takenAt || "June 15, 2023"
   // Use provided interesting facts or fallback to defaults
   const facts =
-  Array.isArray(interestingDetails) && interestingDetails.length > 0
+    Array.isArray(interestingDetails) && interestingDetails.length > 0
       ? interestingDetails
       : [
-          "This image was captured using a high-resolution camera with specialized lighting techniques.",
-          "The color palette features predominantly warm tones with complementary cool accents.",
-          "The composition follows the rule of thirds, creating a balanced and visually appealing arrangement.",
-          "This style is reminiscent of contemporary visual aesthetics popular in digital media.",
-          "The visual elements in this image create a sense of depth and dimension through careful layering.",
-        ]
-        useEffect(() => {
-          if (open && matchId && activeTab === "chat") {
-            fetchChatHistory()
-          }
-        }, [open, matchId, activeTab])
-      
-        // Function to fetch chat history
-        const fetchChatHistory = async () => {
-          if (!matchId) return
-      
-          setIsFetchingChat(true)
-          setChatError(null)
-      
-          try {
-            const response = await fetch(`/api/chats/${matchId}`)
-      
-            if (!response.ok) {
-              throw new Error(`Failed to fetch chat history: ${response.status}`)
-            }
-      
-            const data = await response.json()
-            setChatHistory(data)
-      
-            // Convert the chat history to the format used by the component
-            if (data.messages && data.messages.length > 0) {
-              const formattedMessages = data.messages.map((msg: ChatMessage) => ({
-                role: msg.is_user ? ("user" as const) : ("assistant" as const),
-                content: msg.is_user ? msg.message_text : extractTextFromXML(msg.message_text),
-              }))
-      
-              // Only update messages if we have chat history
-              if (formattedMessages.length > 0) {
-                setMessages(formattedMessages)
-              }
-            }
-          } catch (error) {
-            console.error("Error fetching chat history:", error)
-            setChatError("Failed to load chat history. You can still start a new conversation.")
-          } finally {
-            setIsFetchingChat(false)
-          }
+        "This image was captured using a high-resolution camera with specialized lighting techniques.",
+        "The color palette features predominantly warm tones with complementary cool accents.",
+        "The composition follows the rule of thirds, creating a balanced and visually appealing arrangement.",
+        "This style is reminiscent of contemporary visual aesthetics popular in digital media.",
+        "The visual elements in this image create a sense of depth and dimension through careful layering.",
+      ]
+
+  // Reset messages when dialog opens with a new matchId
+  useEffect(() => {
+    if (open) {
+      // Reset chat state when dialog opens
+      setMessages([{
+        role: "assistant",
+        content: "Ask me anything about this image!",
+      }]);
+      setChatHistory(null);
+      setStreamedResponse("");
+      setCurrentStatus(null);
+
+      // Check if image is saved
+      const imageId = id || `dialog_${title.replace(/\s+/g, "_").toLowerCase()}`
+      setIsSaved(isImageSaved(imageId))
+
+      // If chat tab is active, fetch chat history
+      if (activeTab === "chat" && matchId) {
+        fetchChatHistory()
+      }
+    }
+  }, [open, id, title, matchId]); // Add matchId to dependency array
+
+  // This useEffect will handle tab changes while dialog is open
+  useEffect(() => {
+    if (open && activeTab === "chat" && matchId) {
+      fetchChatHistory()
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (open) {
+      const imageId = id || `dialog_${title.replace(/\s+/g, "_").toLowerCase()}`
+      setIsSaved(isImageSaved(imageId))
+    }
+  }, [open, id, title])
+
+  // Function to fetch chat history
+  const fetchChatHistory = async () => {
+    if (!matchId) return
+
+    setIsFetchingChat(true)
+    setChatError(null)
+
+    // Reset messages to default state before fetching new chat history
+    setMessages([{
+      role: "assistant",
+      content: "Ask me anything about this image!",
+    }]);
+
+    try {
+      console.log("Fetching chat history for matchId:", matchId);
+
+      // Use the correct API endpoint with the matchId
+      const response = await fetch(`/api/chats/${encodeURIComponent(matchId)}`);
+
+      if (!response.ok) {
+        // Log the specific error status
+        console.error(`Chat history API error: ${response.status} ${response.statusText}`);
+
+        // Check if 404 - this might be a new chat
+        if (response.status === 404) {
+          // Not an error - just no existing chat yet
+          console.log("No existing chat history found - starting new chat");
+          setChatError(null);
+          setIsFetchingChat(false);
+          return;
         }
 
-        const handleSendMessage = async (e: React.FormEvent) => {
-          e.preventDefault()
-          if (!inputValue.trim() || isLoading) return
-      
-          // Add user message
-          const userMessage = { role: "user" as const, content: inputValue }
-          setMessages((prev) => [...prev, userMessage])
-      
-          // Clear input and set loading state
-          const userInput = inputValue
-          setInputValue("")
-          setIsLoading(true)
-          setStreamedResponse("")
-          setCurrentStatus("Sending message...")
-          try {
-            // If we have a matchId, send the message to the API
-            if (matchId) {
-              // Add a temporary placeholder for the AI response
-              setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }])
-      
-              // Prepare the request body
-              const requestBody = {
-                message: userInput,
-              }
-      
-              // Send the message to the API with streaming response
-              const response = await fetch(`/api/chats/${matchId}/send`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify(requestBody),
-              })
-      
-              if (!response.ok) {
-                throw new Error(`Failed to send message: ${response.status}`)
-              }
-      
-              // Handle the streaming response
-              const reader = response.body?.getReader()
-              if (!reader) {
-                throw new Error("Failed to get response reader")
-              }
-      
-              const decoder = new TextDecoder()
-              let responseText = ""
-              let buffer = ""
-      
-              // Process the stream
-              while (true) {
-                const { done, value } = await reader.read()
-      
-                if (done) {
-                  break
-                }
-      
-                // Decode the chunk and add it to the buffer
-                const chunk = decoder.decode(value, { stream: true })
-                buffer += chunk
-      
-                // Process complete lines in the buffer
-                let lineEnd = buffer.indexOf("\n")
-                while (lineEnd >= 0) {
-                  const line = buffer.substring(0, lineEnd).trim()
-                  buffer = buffer.substring(lineEnd + 1)
-      
-                  if (line) {
-                    try {
-                      // Parse the event data
-                      const eventData = JSON.parse(line)
-      
-                      // Handle different event types
-                      switch (eventData.event) {
-                        case "processing":
-                        case "generating":
-                          const statusData = JSON.parse(eventData.data)
-                          setCurrentStatus(statusData.message || "Processing...")
-                          break
-      
-                        case "answer_start":
-                          setCurrentStatus("Generating answer...")
-                          responseText = ""
-                          break
-      
-                        case "answer_chunk":
-                          const chunkData = JSON.parse(eventData.data)
-                          if (chunkData.chunk) {
-                            responseText += chunkData.chunk
-      
-                            // Format the text for display
-                            const formattedText = extractTextFromXML(responseText)
-                            setStreamedResponse(formattedText)
-      
-                            // Update the last message with the current streamed response
-                            setMessages((prev) => {
-                              const newMessages = [...prev]
-                              newMessages[newMessages.length - 1] = {
-                                role: "assistant",
-                                content: formattedText,
-                              }
-                              return newMessages
-                            })
-                          }
-                          break
-      
-                        case "complete":
-                          setCurrentStatus(null)
-                          const completeData = JSON.parse(eventData.data)
-                          if (completeData.answer) {
-                            const finalText = extractTextFromXML(completeData.answer)
-      
-                            // Update the last message with the final response
-                            setMessages((prev) => {
-                              const newMessages = [...prev]
-                              newMessages[newMessages.length - 1] = {
-                                role: "assistant",
-                                content: finalText,
-                              }
-                              return newMessages
-                            })
-                          }
-                          break
-                      }
-                    } catch (error) {
-                      console.error("Error parsing event data:", error, line)
+        throw new Error(`Failed to fetch chat history: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Received chat history:", data);
+
+      // Validate the data structure
+      if (!data || !Array.isArray(data.messages)) {
+        console.warn("Invalid chat history format:", data);
+        // Don't set error, just use default message
+        setIsFetchingChat(false);
+        return;
+      }
+
+      setChatHistory(data);
+
+      // Convert the chat history to the format used by the component
+      if (data.messages && data.messages.length > 0) {
+        const formattedMessages = data.messages.map((msg: ChatMessage) => ({
+          role: msg.is_user ? ("user" as const) : ("assistant" as const),
+          content: msg.is_user ? msg.message_text : extractTextFromXML(msg.message_text),
+        }));
+
+        // Only update messages if we have chat history
+        if (formattedMessages.length > 0) {
+          setMessages(formattedMessages);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching chat history:", error);
+      setChatError("Failed to load chat history. You can still start a new conversation.");
+    } finally {
+      setIsFetchingChat(false);
+    }
+  }
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inputValue.trim() || isLoading) return
+
+    // Add user message
+    const userMessage = { role: "user" as const, content: inputValue }
+    setMessages((prev) => [...prev, userMessage])
+
+    // Clear input and set loading state
+    const userInput = inputValue
+    setInputValue("")
+    setIsLoading(true)
+    setStreamedResponse("")
+    setCurrentStatus("Sending message...")
+    try {
+      // If we have a matchId, send the message to the API
+      if (matchId) {
+        // Add a temporary placeholder for the AI response
+        setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }])
+
+        // Prepare the request body
+        const requestBody = {
+          message: userInput,
+        }
+
+        // Send the message to the API with streaming response
+        const response = await fetch(`/api/chats/${matchId}/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to send message: ${response.status}`)
+        }
+
+        // Handle the streaming response
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error("Failed to get response reader")
+        }
+
+        const decoder = new TextDecoder()
+        let responseText = ""
+        let buffer = ""
+
+        // Process the stream
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            break
+          }
+
+          // Decode the chunk and add it to the buffer
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
+
+          // Process complete lines in the buffer
+          let lineEnd = buffer.indexOf("\n")
+          while (lineEnd >= 0) {
+            const line = buffer.substring(0, lineEnd).trim()
+            buffer = buffer.substring(lineEnd + 1)
+
+            if (line) {
+              try {
+                // Parse the event data
+                const eventData = JSON.parse(line)
+
+                // Handle different event types
+                switch (eventData.event) {
+                  case "processing":
+                  case "generating":
+                    const statusData = JSON.parse(eventData.data)
+                    setCurrentStatus(statusData.message || "Processing...")
+                    break
+
+                  case "answer_start":
+                    setCurrentStatus("Generating answer...")
+                    responseText = ""
+                    break
+
+                  case "answer_chunk":
+                    const chunkData = JSON.parse(eventData.data)
+                    if (chunkData.chunk) {
+                      responseText += chunkData.chunk
+
+                      // Format the text for display
+                      const formattedText = extractTextFromXML(responseText)
+                      setStreamedResponse(formattedText)
+
+                      // Update the last message with the current streamed response
+                      setMessages((prev) => {
+                        const newMessages = [...prev]
+                        newMessages[newMessages.length - 1] = {
+                          role: "assistant",
+                          content: formattedText,
+                        }
+                        return newMessages
+                      })
                     }
-                  }
-      
-                  // Look for the next line
-                  lineEnd = buffer.indexOf("\n")
+                    break
+
+                  case "complete":
+                    setCurrentStatus(null)
+                    const completeData = JSON.parse(eventData.data)
+                    if (completeData.answer) {
+                      const finalText = extractTextFromXML(completeData.answer)
+
+                      // Update the last message with the final response
+                      setMessages((prev) => {
+                        const newMessages = [...prev]
+                        newMessages[newMessages.length - 1] = {
+                          role: "assistant",
+                          content: finalText,
+                        }
+                        return newMessages
+                      })
+                    }
+                    break
                 }
-              }
-            } else {
-              // Fallback to simulated response if no matchId
-              let simulatedResponse = ""
-              const fullResponse = `I analyzed the image further based on your question about "${userInput}". This appears to be a ${
-                Math.random() > 0.5 ? "natural" : "composed"
-              } scene with interesting visual elements. The lighting suggests it was ${
-                Math.random() > 0.5 ? "captured during daytime" : "taken in controlled conditions"
-              }. The subject matter relates to your search query in several ways, particularly through its ${
-                Math.random() > 0.5 ? "thematic elements" : "visual composition"
-              }.`
-      
-              // Add a temporary placeholder for the AI response
-              setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }])
-      
-              // Simulate streaming by adding characters one by one
-              for (let i = 0; i < fullResponse.length; i++) {
-                await new Promise((resolve) => setTimeout(resolve, 10))
-                simulatedResponse += fullResponse[i]
-      
-                // Update the streamed response
-                setStreamedResponse(simulatedResponse)
-      
-                // Update the last message with the current streamed response
-                setMessages((prev) => {
-                  const newMessages = [...prev]
-                  newMessages[newMessages.length - 1] = {
-                    role: "assistant",
-                    content: simulatedResponse,
-                  }
-                  return newMessages
-                })
+              } catch (error) {
+                console.error("Error parsing event data:", error, line)
               }
             }
-          } catch (error) {
-            console.error("Error sending message:", error)
-            toast({
-              title: "Error",
-              description: "Failed to send message. Please try again.",
-              variant: "destructive",
-            })
-      
-            // Remove the temporary placeholder message
-            setMessages((prev) => prev.slice(0, -1))
-          } finally {
-            setIsLoading(false)
-            setStreamedResponse("")
-            setCurrentStatus(null)
+
+            // Look for the next line
+            lineEnd = buffer.indexOf("\n")
           }
         }
+      } else {
+        // Fallback to simulated response if no matchId
+        let simulatedResponse = ""
+        const fullResponse = `I analyzed the image further based on your question about "${userInput}". This appears to be a ${Math.random() > 0.5 ? "natural" : "composed"
+          } scene with interesting visual elements. The lighting suggests it was ${Math.random() > 0.5 ? "captured during daytime" : "taken in controlled conditions"
+          }. The subject matter relates to your search query in several ways, particularly through its ${Math.random() > 0.5 ? "thematic elements" : "visual composition"
+          }.`
+
+        // Add a temporary placeholder for the AI response
+        setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }])
+
+        // Simulate streaming by adding characters one by one
+        for (let i = 0; i < fullResponse.length; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          simulatedResponse += fullResponse[i]
+
+          // Update the streamed response
+          setStreamedResponse(simulatedResponse)
+
+          // Update the last message with the current streamed response
+          setMessages((prev) => {
+            const newMessages = [...prev]
+            newMessages[newMessages.length - 1] = {
+              role: "assistant",
+              content: simulatedResponse,
+            }
+            return newMessages
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Error sending message:", error)
+      toast({
+        title: "Error",
+        description: "Failed to send message. Please try again.",
+        variant: "destructive",
+      })
+
+      // Remove the temporary placeholder message
+      setMessages((prev) => prev.slice(0, -1))
+    } finally {
+      setIsLoading(false)
+      setStreamedResponse("")
+      setCurrentStatus(null)
+    }
+  }
+
 
   const toggleSave = () => {
     const imageId = id || `dialog_${title.replace(/\s+/g, "_").toLowerCase()}`
@@ -367,6 +428,11 @@ export function ImageDetailDialog({
       // Remove from saved
       removeSavedImage(imageId)
       setIsSaved(false)
+
+      // Call the callback to notify parent component
+      if (onSaveChange) {
+        onSaveChange(imageId, false)
+      }
 
       setTimeout(() => {
         toast({
@@ -378,16 +444,21 @@ export function ImageDetailDialog({
       // Add to saved
       saveImage({
         id: imageId,
-        title,
+        title: heading || title,
         image,
         reason,
         savedAt: Date.now(),
-        location:formattedAddress,
-        takenAt: takenAt,
+        location: formattedAddress,
+        takenAt: reverseFormatDate(takenAt || ""),
         interestingDetails: interestingDetails,
         heading: heading,
       })
       setIsSaved(true)
+
+      // Call the callback to notify parent component
+      if (onSaveChange) {
+        onSaveChange(imageId, true)
+      }
 
       setTimeout(() => {
         toast({
@@ -457,13 +528,6 @@ export function ImageDetailDialog({
     }
   }, [messages, activeTab, streamedResponse])
 
-  useEffect(() => {
-    if (open) {
-      const imageId = id || `dialog_${title.replace(/\s+/g, "_").toLowerCase()}`
-      setIsSaved(isImageSaved(imageId))
-    }
-  }, [open, id, title])
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl w-full h-[85vh] p-0 gap-0 rounded-xl overflow-hidden border-0 shadow-2xl">
@@ -515,18 +579,25 @@ export function ImageDetailDialog({
               </div>
 
               {/* Location and date */}
-              <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-black/60">
-                <div className="flex flex-col space-y-1">
-                  <div className="flex items-center text-white/90 text-sm">
-                    <MapPin className="h-3.5 w-3.5 mr-1.5" />
-                    <span>{imageLocation}</span>
+              {((formattedAddress && formattedAddress.trim() !== "") ||
+                (takenAt && takenAt.trim() !== "" && takenAt !== "Date not available")) && (
+                  <div className="absolute bottom-0 left-0 right-0 z-20 p-4 bg-black/60">
+                    <div className="flex flex-col space-y-1">
+                      {formattedAddress && formattedAddress.trim() !== "" && (
+                        <div className="flex items-center text-white/90 text-sm">
+                          <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                          <span>{formattedAddress}</span>
+                        </div>
+                      )}
+                      {takenAt && takenAt.trim() !== "" && takenAt !== "Date not available" && (
+                        <div className="flex items-center text-white/90 text-sm">
+                          <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                          <span>{takenAt}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center text-white/90 text-sm">
-                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                    <span>{imageDate}</span>
-                  </div>
-                </div>
-              </div>
+                )}
             </div>
           </div>
 
@@ -584,7 +655,7 @@ export function ImageDetailDialog({
                       <div className="flex items-center gap-2 mb-3">
                         <div className="h-6 w-1 bg-amber-500 dark:bg-amber-500 rounded-full" />
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider">
-                        Reason for Match <span className="text-amber-500 dark:text-amber-400">✨</span>
+                          Reason for Match <span className="text-amber-500 dark:text-amber-400">✨</span>
                         </h3>
                       </div>
                       <div className="pl-3 border-l-2 border-gray-100 dark:border-gray-800 space-y-3">
@@ -637,7 +708,7 @@ export function ImageDetailDialog({
                 {/* Messages area */}
                 <ScrollArea className="flex-1 px-4">
                   <div className="py-4 space-y-4">
-                  {isFetchingChat ? (
+                    {isFetchingChat ? (
                       <div className="flex justify-center items-center h-32">
                         <div className="flex flex-col items-center">
                           <div className="h-8 w-8 border-2 border-amber-500 dark:border-amber-500 border-t-transparent rounded-full animate-spin mb-2" />
@@ -655,7 +726,7 @@ export function ImageDetailDialog({
                       </div>
                     ) : (
                       <>
-                    {messages.map((message, index) => (
+                        {messages.map((message, index) => (
                           <div
                             key={index}
                             className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}
@@ -680,17 +751,17 @@ export function ImageDetailDialog({
                             </div>
                           </div>
                         )}
-                     {isLoading && !streamedResponse && !currentStatus &&  ( 
-                      <div className="flex justify-start">
-                        <div className="max-w-[85%] rounded-2xl rounded-tl-none p-4 bg-gray-100 dark:bg-gray-800">
-                          <div className="flex space-x-2">
-                            <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce"></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce delay-75"></div>
-                            <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce delay-150"></div>
+                        {isLoading && !streamedResponse && !currentStatus && (
+                          <div className="flex justify-start">
+                            <div className="max-w-[85%] rounded-2xl rounded-tl-none p-4 bg-gray-100 dark:bg-gray-800">
+                              <div className="flex space-x-2">
+                                <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce"></div>
+                                <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce delay-75"></div>
+                                <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600 animate-bounce delay-150"></div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                       )}
+                        )}
                       </>
                     )}
                     <div ref={messagesEndRef} />

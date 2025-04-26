@@ -41,6 +41,37 @@ export function formatDate(dateString?: string): string {
   }
 }
 
+/**
+ * Converts a formatted date string back to ISO format
+ * Accepts strings in format: "Month Day, Year at Hour:Minute AM/PM"
+ * Example: "June 22, 2023 at 3:04 PM" -> "2023-06-22T15:04:00.000Z"
+ */
+export function reverseFormatDate(formattedDate: string): string {
+  if (!formattedDate || formattedDate === "Date not available") {
+    return "";
+  }
+
+  try {
+    // Handle "at" in the string by replacing it with a space
+    const normalizedString = formattedDate.replace(" at ", " ");
+    
+    // Parse the date using the browser's built-in capabilities
+    const date = new Date(normalizedString);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.error("Invalid date format:", formattedDate);
+      return "";
+    }
+    
+    // Return the ISO string
+    return date.toISOString();
+  } catch (error) {
+    console.error("Error parsing formatted date:", error);
+    return "";
+  }
+}
+
 // Mock API response for search results
 export function getMockSearchResults(query: string) {
   return {

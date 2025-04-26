@@ -47,10 +47,10 @@ export default function PicQSearch() {
 
   // Reduced to 4 diverse visual inspiration queries
   const recommendedQueries = [
-    "Sunset over mountains with orange and purple sky",
-    "Modern minimalist kitchen with marble countertops",
-    "A group of four people at Yosemite in the month of June last year",
-    "Urban street photography with neon lights and rain",
+     "A group of four people at Yosemite in the month of June last year",
+     "Do you remember seeing a person walking with his Dog on the beach, I think it was last month",
+     "A car ride on a very cold moody december",
+     "The adventurer in me trying rock climbing for the first time"
   ]
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
